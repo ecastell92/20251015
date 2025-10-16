@@ -1,0 +1,17 @@
+iniciativas-backup/initiative-logic/terraform.tfstate
+listar_archivos.sh
+instalar_correcciones.sh
+iniciativas-backup/initiative-logic/build/launch_batch_job.zip
+iniciativas-backup/initiative-logic/build/incremental_backup.zip
+iniciativas-backup/initiative-logic/build/find_resources.zip
+iniciativas-backup/initiative-logic/build/filter_inventory.zip
+iniciativas-backup/initiative-logic/build/backup_configurations.zip
+iniciativas-backup/initiative-logic/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/terraform-provider-aws_v5.100.0_x5.exe
+iniciativas-backup/initiative-logic/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/LICENSE.txt
+iniciativas-backup/initiative-logic/.terraform/providers/registry.terraform.io/hashicorp/archive/2.7.1/windows_amd64/terraform-provider-archive_v2.7.1_x5.exe
+iniciativas-backup/initiative-logic/.terraform/providers/registry.terraform.io/hashicorp/archive/2.7.1/windows_amd64/LICENSE.txt
+iniciativas-backup/initiative-logic/.terraform.lock.hcl
+iniciativas-backup/central-resources/terraform.tfstate
+iniciativas-backup/central-resources/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/terraform-provider-aws_v5.100.0_x5.exe
+iniciativas-backup/central-resources/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/LICENSE.txt
+iniciativas-backup/central-resources/.terraform.lock.hcl
