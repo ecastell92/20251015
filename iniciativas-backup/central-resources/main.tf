@@ -1,5 +1,10 @@
 // ============================================================================
-// Central Resources Project
+// Central Resources Project - CORREGIDO
+// ============================================================================
+// Cambios:
+// - Eliminada configuración duplicada gfs_menoscritico
+// - Sin referencias a KMS (solo AES256)
+// - Todas las rules GFS están en la configuración dinámica
 // ============================================================================
 
 terraform {
@@ -23,7 +28,7 @@ locals {
 }
 
 # ----------------------------------------------------------------------------
-# Bucket central de backups
+# Bucket central de backups (único para todo)
 # ----------------------------------------------------------------------------
 resource "aws_s3_bucket" "central_backup" {
   bucket              = local.central_backup_bucket_name
@@ -51,6 +56,7 @@ resource "aws_s3_bucket_ownership_controls" "central_backup" {
   }
 }
 
+# Cifrado con AES256 (sin KMS)
 resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
@@ -61,7 +67,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
   }
 }
 
-# Object Lock default retention (optional)
+# Object Lock default retention (opcional)
 resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
   count  = var.enable_object_lock && var.object_lock_retention_days > 0 ? 1 : 0
   bucket = aws_s3_bucket.central_backup.id
@@ -76,11 +82,12 @@ resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
 
 # ----------------------------------------------------------------------------
 # Lifecycle Policies diferenciadas por criticidad
+# ÚNICA CONFIGURACIÓN - Las reglas GFS están incluidas aquí dinámicamente
 # ----------------------------------------------------------------------------
 resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
-  # Retención de respaldos completos por criticidad
+  # Retención de respaldos completos por criticidad (cuando GFS no está habilitado)
   dynamic "rule" {
     for_each = { for k, v in var.lifecycle_rules : k => v if !try(var.gfs_rules[k].enable, false) }
     content {
@@ -99,8 +106,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       dynamic "transition" {
         for_each = rule.value.deep_archive_transition_days > 0 ? [1] : []
         content {
-          days = rule.value.deep_archive_transition_days
-
+          days          = rule.value.deep_archive_transition_days
           storage_class = "DEEP_ARCHIVE"
         }
       }
@@ -111,7 +117,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # Retención corta de respaldos incrementales; evita duplicados al conservar solo el último ciclo completo
+  # Retención corta de respaldos incrementales (cuando GFS no está habilitado)
   dynamic "rule" {
     for_each = {
       for name, cfg in var.lifecycle_rules : name => cfg
@@ -165,7 +171,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     noncurrent_version_expiration { noncurrent_days = 1 }
   }
 
-  # === Reglas GFS (Son) ===
+  rule {
+    id     = "cleanup-manifests-temp"
+    status = "Enabled"
+    filter { prefix = "manifests/temp/" }
+    expiration { days = 7 }
+    noncurrent_version_expiration { noncurrent_days = 1 }
+  }
+
+  # === Reglas GFS (Son) - Incrementales diarios ===
   dynamic "rule" {
     for_each = { for k, v in var.gfs_rules : k => v if v.enable }
     content {
@@ -182,7 +196,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # === Reglas GFS (Father) ===
+  # === Reglas GFS (Father) - Full quincenales/semanales ===
   dynamic "rule" {
     for_each = { for k, v in var.gfs_rules : k => v if v.enable }
     content {
@@ -207,7 +221,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # === Reglas GFS (Grandfather) ===
+  # === Reglas GFS (Grandfather) - Full mensuales/trimestrales ===
   dynamic "rule" {
     for_each = { for k, v in var.gfs_rules : k => v if v.enable }
     content {
@@ -233,69 +247,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# GFS (Grandfather-Father-Son) para MenosCritico en un solo bucket
-# Son: incrementales diarios
-# Father: completos quincenales
-# Grandfather: completos mensuales/anuales
-# ---------------------------------------------------------------------------
-resource "aws_s3_bucket_lifecycle_configuration" "gfs_menoscritico" {
-  bucket = aws_s3_bucket.central_backup.id
-
-  # Sons (incrementales)
-  rule {
-    id     = "gfs-menoscritico-son"
-    status = "Enabled"
-    filter { prefix = "backup/criticality=MenosCritico/backup_type=incremental/generation=son/" }
-
-    transition {
-      days          = 0
-      storage_class = "GLACIER_IR"
-    }
-
-    expiration { days = 15 }
-  }
-
-  # Fathers (full)
-  rule {
-    id     = "gfs-menoscritico-father"
-    status = "Enabled"
-    filter { prefix = "backup/criticality=MenosCritico/backup_type=full/generation=father/" }
-
-    transition {
-      days          = 0
-      storage_class = "GLACIER_IR"
-    }
-    transition {
-      days          = 90
-      storage_class = "DEEP_ARCHIVE"
-    }
-
-    expiration { days = 365 }
-  }
-
-  # Grandfathers (full)
-  rule {
-    id     = "gfs-menoscritico-grandfather"
-    status = "Enabled"
-    filter { prefix = "backup/criticality=MenosCritico/backup_type=full/generation=grandfather/" }
-
-    transition {
-      days          = 0
-      storage_class = "GLACIER_IR"
-    }
-    transition {
-      days          = 90
-      storage_class = "DEEP_ARCHIVE"
-    }
-
-    expiration { days = 1825 }
-  }
-}
-
-
 # ----------------------------------------------------------------------------
 # Bucket Policy cross-account + S3 Inventory + Batch Ops
+# Sin referencias a KMS - Solo AES256
 # ----------------------------------------------------------------------------
 resource "aws_s3_bucket_policy" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
@@ -444,14 +398,15 @@ resource "aws_backup_vault" "central" {
   }
 }
 
-
 # ----------------------------------------------------------------------------
 # Outputs
 # ----------------------------------------------------------------------------
 output "central_backup_bucket_name" {
-  value = aws_s3_bucket.central_backup.bucket
+  value       = aws_s3_bucket.central_backup.bucket
+  description = "Nombre del bucket central (usado para backups, manifiestos, reportes y checkpoints)"
 }
 
 output "central_backup_bucket_arn" {
-  value = aws_s3_bucket.central_backup.arn
+  value       = aws_s3_bucket.central_backup.arn
+  description = "ARN del bucket central"
 }
