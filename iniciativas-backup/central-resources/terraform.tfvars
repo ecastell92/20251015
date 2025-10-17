@@ -31,39 +31,39 @@ gfs_rules = {
   # CRITICO: 5 años, IR 180d -> DA
   Critico = {
     enable                     = true
-    start_storage_class        = "GLACIER_IR"
-    son_retention_days         = 45
-    father_da_days             = 180             # 180d en IR, luego DA
-    father_retention_days      = 1825            # 5 años total
+    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
+    son_retention_days         = 14           # 2 semanas de incrementales
+    father_da_days             = 90           # Transición a DA (mínimo S3)
+    father_retention_days      = 365          # 1 año de full semanales
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 180             # 180d en IR, luego DA
-    grandfather_retention_days = 1825            # 5 años total
+    grandfather_da_days        = 0   # DA inmediato para auditoría
+    grandfather_retention_days = 730 # 2 años de auditoría
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
   # MENOS CRITICO: 5 años, IR 90d -> DA
   MenosCritico = {
     enable                     = true
-    start_storage_class        = "GLACIER_IR"
-    son_retention_days         = 30
-    father_da_days             = 90              # 90d en IR, luego DA
-    father_retention_days      = 1825            # 5 años total
+    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
+    son_retention_days         = 7            # 1 semana de incrementales
+    father_da_days             = 90           # Transición a DA
+    father_retention_days      = 90           # Mínimo posible
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 90              # 90d en IR, luego DA
-    grandfather_retention_days = 1825            # 5 años total
+    grandfather_da_days        = 0   # DA inmediato
+    grandfather_retention_days = 365 # 1 año de auditoría
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
   # NO CRITICO: Directo a GLACIER, eliminar a 90d
   NoCritico = {
     enable                     = true
-    start_storage_class        = "GLACIER"
-    son_retention_days         = 0
-    father_da_days             = 0
-    father_retention_days      = 90              # mínimo GLACIER (90d)
+    start_storage_class        = "GLACIER" # Más barato (sin incrementales)
+    son_retention_days         = 0         # Sin incrementales (ahorro)
+    father_da_days             = 0         # Quedarse en GLACIER
+    father_retention_days      = 90        # Mínimo GLACIER (90d)
     father_archive_class       = "GLACIER"
-    grandfather_da_days        = 0
-    grandfather_retention_days = 90              # mínimo GLACIER (90d)
+    grandfather_da_days        = 0 # Sin grandfather (ahorro)
+    grandfather_retention_days = 0 # Sin retención larga
     grandfather_archive_class  = "GLACIER"
   }
 }
@@ -74,37 +74,17 @@ gfs_rules = {
 # NOTA: Estas reglas están deshabilitadas cuando gfs_rules.enable=true
 
 lifecycle_rules = {
-  Critico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 90
-    expiration_days                     = 1825
-    incremental_expiration_days         = 45
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = true
-  }
-  
-  MenosCritico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 90
-    expiration_days                     = 1095
-    incremental_expiration_days         = 30
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = true
-  }
-  
-  NoCritico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 0
-    expiration_days                     = 90
-    incremental_expiration_days         = 21
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = false
-  }
+  Critico      = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 365, incremental_expiration_days = 14, incremental_glacier_transition_days = 0, use_glacier_ir = true }
+  MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 90, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = true }
+  NoCritico    = { glacier_transition_days = 0, deep_archive_transition_days = 0, expiration_days = 90, incremental_expiration_days = 0, incremental_glacier_transition_days = 0, use_glacier_ir = false }
 }
+
 
 # ----------------------------------------------------------------------------
 # VALIDACIONES S3
 # ----------------------------------------------------------------------------
 
-min_deep_archive_offset_days = 90  # Mínimo requerido por S3
+min_deep_archive_offset_days = 90 # Mínimo requerido por S3
+
+
 

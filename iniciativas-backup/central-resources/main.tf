@@ -1,11 +1,11 @@
 // ============================================================================
-// Central Resources Project - VERSIÓN CORREGIDA FINAL
+// Central Resources Project - VERSIÓN ECONÓMICA OPTIMIZADA
 // ============================================================================
-// CAMBIOS PRINCIPALES:
-// 1. Nomenclatura unificada: central_backup_bucket_name (consistente)
-// 2. Sin referencias a KMS (solo AES256)
-// 3. Reglas GFS optimizadas y validadas
-// 4. Outputs exportados correctamente
+// CAMBIOS PARA OPTIMIZACIÓN DE COSTOS:
+// 1. Versionado SUSPENDIDO (ahorro en almacenamiento de versiones)
+// 2. Lifecycle de archivos operacionales: 7 días (vs 21)
+// 3. Reglas GFS con retención mínima
+// 4. Sin Object Lock (simplicidad)
 // ============================================================================
 
 terraform {
@@ -25,30 +25,25 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 # ============================================================================
-# LOCALS - Nomenclatura Unificada
+# LOCALS
 # ============================================================================
 
 locals {
-  # Nombre completo del bucket central (ÚNICO EN TODO EL CÓDIGO)
   central_backup_bucket_name = var.central_backup_bucket_name
+  central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
+  resource_prefix            = "${var.tenant}-${lower(var.environment)}"
 
-  # ARN del bucket central
-  central_backup_bucket_arn = "arn:aws:s3:::${local.central_backup_bucket_name}"
-
-  # Prefijo para recursos
-  resource_prefix = "${var.tenant}-${lower(var.environment)}"
-
-  # Tags comunes
   common_tags = {
     Name        = "central-backup"
     Environment = var.environment
     ManagedBy   = "Terraform"
     Initiative  = "backup-s3"
+    CostCenter  = "optimized"
   }
 }
 
 # ============================================================================
-# BUCKET CENTRAL DE BACKUPS (ÚNICO)
+# BUCKET CENTRAL DE BACKUPS
 # ============================================================================
 
 resource "aws_s3_bucket" "central_backup" {
@@ -63,7 +58,6 @@ resource "aws_s3_bucket" "central_backup" {
 # CONFIGURACIÓN DE SEGURIDAD
 # ============================================================================
 
-# Bloqueo de acceso público
 resource "aws_s3_bucket_public_access_block" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
@@ -73,7 +67,6 @@ resource "aws_s3_bucket_public_access_block" "central_backup" {
   restrict_public_buckets = true
 }
 
-# Ownership controls
 resource "aws_s3_bucket_ownership_controls" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
@@ -82,7 +75,6 @@ resource "aws_s3_bucket_ownership_controls" "central_backup" {
   }
 }
 
-# Cifrado con AES256 (sin KMS)
 resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
@@ -94,16 +86,22 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
   }
 }
 
-# Versionado (recomendado para backups)
+# ============================================================================
+# VERSIONADO SUSPENDIDO (OPTIMIZACIÓN DE COSTOS)
+# ============================================================================
+
 resource "aws_s3_bucket_versioning" "central_backup" {
   bucket = aws_s3_bucket.central_backup.id
 
   versioning_configuration {
-    status = "Enabled"
+    status = "Suspended" # CAMBIADO: de "Enabled" a "Suspended" para ahorrar
   }
 }
 
-# Object Lock (opcional)
+# ============================================================================
+# OBJECT LOCK (OPCIONAL - Deshabilitado por defecto)
+# ============================================================================
+
 resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
   count = var.enable_object_lock && var.object_lock_retention_days > 0 ? 1 : 0
 
@@ -118,7 +116,7 @@ resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
 }
 
 # ============================================================================
-# LIFECYCLE POLICIES - GFS POR CRITICIDAD
+# LIFECYCLE POLICIES - GFS OPTIMIZADO POR CRITICIDAD
 # ============================================================================
 
 resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
@@ -151,9 +149,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
         days = rule.value.son_retention_days
       }
 
-      # Limpiar versiones antiguas
+      # Limpiar versiones antiguas (si versionado se reactiva)
       noncurrent_version_expiration {
-        noncurrent_days = 30
+        noncurrent_days = 7 # Más agresivo: 7 días vs 30
       }
     }
   }
@@ -176,7 +174,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
         storage_class = rule.value.start_storage_class
       }
 
-      # Transición a DEEP_ARCHIVE (si configurado y respetando mínimo 90 días)
+      # Transición a DEEP_ARCHIVE (si configurado)
       dynamic "transition" {
         for_each = rule.value.father_da_days > 0 ? [1] : []
 
@@ -192,14 +190,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       }
 
       noncurrent_version_expiration {
-        noncurrent_days = 30
+        noncurrent_days = 7
       }
     }
   }
 
   # === GRANDFATHER: Backups full mensuales/trimestrales/semestrales ===
   dynamic "rule" {
-    for_each = { for k, v in var.gfs_rules : k => v if v.enable }
+    for_each = { for k, v in var.gfs_rules : k => v if v.enable && v.grandfather_retention_days > 0 }
 
     content {
       id     = "${rule.key}-gfs-grandfather"
@@ -215,7 +213,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
         storage_class = rule.value.start_storage_class
       }
 
-      # Transición a DEEP_ARCHIVE para retención larga
+      # Transición a DEEP_ARCHIVE
       dynamic "transition" {
         for_each = rule.value.grandfather_da_days > 0 ? [1] : []
 
@@ -225,22 +223,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
         }
       }
 
-      # Expiración después de retención larga (ej: 7 años)
+      # Expiración después de retención larga
       expiration {
         days = rule.value.grandfather_retention_days
       }
 
       noncurrent_version_expiration {
-        noncurrent_days = 30
+        noncurrent_days = 7
       }
     }
   }
 
   # ─────────────────────────────────────────────────────────────────────────
-  # REGLAS DE LIMPIEZA (Archivos operacionales)
+  # REGLAS DE LIMPIEZA AGRESIVAS (Archivos operacionales)
   # ─────────────────────────────────────────────────────────────────────────
 
-  # Inventarios origen
+  # Inventarios origen - OPTIMIZADO: 7 días
   rule {
     id     = "cleanup-inventory-source"
     status = "Enabled"
@@ -250,7 +248,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
 
     expiration {
-      days = 21
+      days = 7 # CAMBIADO: de 21 a 7 días
     }
 
     noncurrent_version_expiration {
@@ -258,7 +256,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # Reportes de S3 Batch
+  # Reportes de S3 Batch - OPTIMIZADO: 7 días
   rule {
     id     = "cleanup-batch-reports"
     status = "Enabled"
@@ -268,7 +266,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
 
     expiration {
-      days = 21
+      days = 7 # CAMBIADO: de 21 a 7 días
     }
 
     noncurrent_version_expiration {
@@ -276,7 +274,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # Checkpoints
+  # Checkpoints - OPTIMIZADO: 7 días
   rule {
     id     = "cleanup-checkpoints"
     status = "Enabled"
@@ -286,7 +284,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
 
     expiration {
-      days = 21
+      days = 7 # CAMBIADO: de 21 a 7 días
     }
 
     noncurrent_version_expiration {
@@ -294,7 +292,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
   }
 
-  # Manifiestos temporales
+  # Manifiestos temporales - OPTIMIZADO: 7 días
   rule {
     id     = "cleanup-manifests-temp"
     status = "Enabled"
@@ -304,7 +302,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     }
 
     expiration {
-      days = 21
+      days = 7 # CAMBIADO: de 21 a 7 días
     }
 
     noncurrent_version_expiration {
@@ -326,7 +324,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
     Version = "2012-10-17"
     Statement = concat(
       [
-        # Permitir gestión de bucket policy por la cuenta
         {
           Sid    = "AllowSameAccountUpdateBucketPolicy"
           Effect = "Allow"
@@ -339,8 +336,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
           ]
           Resource = aws_s3_bucket.central_backup.arn
         },
-
-        # Permitir que S3 Inventory escriba reportes
         {
           Sid    = "AllowS3InventoryReports"
           Effect = "Allow"
@@ -359,8 +354,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
             }
           }
         },
-
-        # Permitir que S3 Inventory lea ACL del bucket
         {
           Sid    = "AllowS3InventoryGetBucketAcl"
           Effect = "Allow"
@@ -373,8 +366,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
           ]
           Resource = aws_s3_bucket.central_backup.arn
         },
-
-        # Permitir acceso a workers (Lambdas, Batch)
         {
           Sid    = "AllowWorkerRolesObjectAccess"
           Effect = "Allow"
@@ -388,8 +379,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
           ]
           Resource = "${aws_s3_bucket.central_backup.arn}/*"
         },
-
-        # Permitir listado del bucket
         {
           Sid    = "AllowWorkerRolesListBucket"
           Effect = "Allow"
@@ -399,8 +388,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
           Action   = "s3:ListBucket"
           Resource = aws_s3_bucket.central_backup.arn
         },
-
-        # Permitir que S3 Batch Operations lea/escriba
         {
           Sid    = "AllowBatchOperationsObjectAccess"
           Effect = "Allow"
@@ -418,8 +405,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
             }
           }
         },
-
-        # Permitir que S3 Batch Operations liste
         {
           Sid    = "AllowBatchOperationsListBucket"
           Effect = "Allow"
@@ -474,7 +459,6 @@ resource "aws_s3_bucket_policy" "central_backup" {
         ]
       ) : [],
 
-      # Requerir MFA para delete (opcional)
       var.deny_delete_enabled && var.require_mfa_for_delete ? [
         {
           Sid    = "DenyDeleteWithoutMFA"
@@ -519,7 +503,7 @@ resource "aws_backup_vault" "central" {
 # ============================================================================
 
 output "central_backup_bucket_name" {
-  description = "Nombre del bucket central de backups (USAR EN TODO EL CÓDIGO)"
+  description = "Nombre del bucket central de backups"
   value       = aws_s3_bucket.central_backup.bucket
 }
 
@@ -536,4 +520,15 @@ output "central_backup_bucket_region" {
 output "backup_vault_arn" {
   description = "ARN del AWS Backup Vault"
   value       = aws_backup_vault.central.arn
+}
+
+output "cost_optimization_summary" {
+  description = "Resumen de optimizaciones de costos aplicadas"
+  value = {
+    versioning_status          = "Suspended"
+    operational_files_cleanup  = "7 days"
+    son_retention_critico      = "${var.gfs_rules["Critico"].son_retention_days} days"
+    son_retention_menoscritico = "${var.gfs_rules["MenosCritico"].son_retention_days} days"
+    object_lock_enabled        = var.enable_object_lock
+  }
 }
