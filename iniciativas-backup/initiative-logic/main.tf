@@ -379,9 +379,9 @@ resource "aws_iam_role_policy" "launch_batch_job" {
           "s3control:CreateJob",
           "s3control:DescribeJob",
           "s3control:ListJobs",
-          "s3:CreateJob",   # <-- añadido
-          "s3:DescribeJob", # <-- añadido
-          "s3:ListJobs"     # <-- añadido
+          "s3:CreateJob",
+          "s3:DescribeJob",
+          "s3:ListJobs"
         ],
         Resource = "*"
       },
@@ -499,7 +499,7 @@ resource "aws_lambda_function" "filter_inventory" {
     variables = {
       LOG_LEVEL                   = "INFO"
       ALLOWED_PREFIXES            = jsonencode(var.allowed_prefixes)
-      MANIFEST_BUCKET             = var.central_backup_bucket_name
+      BACKUP_BUCKET               = var.central_backup_bucket_name
       FORCE_FULL_ON_FIRST_RUN     = tostring(var.force_full_on_first_run)
       FALLBACK_MAX_OBJECTS        = var.fallback_max_objects == null ? "" : tostring(var.fallback_max_objects)
       FALLBACK_TIME_LIMIT_SECONDS = var.fallback_time_limit_seconds == null ? "" : tostring(var.fallback_time_limit_seconds)
@@ -534,9 +534,6 @@ resource "aws_lambda_function" "launch_batch_job" {
       BACKUP_BUCKET_ARN    = local.central_backup_bucket_arn
       BATCH_ROLE_ARN       = aws_iam_role.batch_job_role.arn
       S3_BACKUP_INICIATIVA = var.iniciativa
-      REPORTS_PREFIX       = "reports/${var.iniciativa}/s3"
-      MANIFESTS_PREFIX     = "manifests/${var.iniciativa}/s3"
-      MANIFESTS_BUCKET     = var.central_backup_bucket_name
     }
   }
 
@@ -564,16 +561,15 @@ resource "aws_lambda_function" "incremental_backup" {
 
   environment {
     variables = {
-      LOG_LEVEL           = "INFO"
-      BACKUP_BUCKET       = var.central_backup_bucket_name
-      BACKUP_BUCKET_ARN   = local.central_backup_bucket_arn
-      INICIATIVA          = var.iniciativa
-      ALLOWED_PREFIXES    = jsonencode(var.allowed_prefixes)
-      CRITICALITY_TAG_KEY = var.criticality_tag
-      MANIFESTS_BUCKET    = var.central_backup_bucket_name
+      LOG_LEVEL              = "INFO"
+      BACKUP_BUCKET          = var.central_backup_bucket_name
+      BACKUP_BUCKET_ARN      = local.central_backup_bucket_arn
+      INICIATIVA             = var.iniciativa
+      ALLOWED_PREFIXES       = jsonencode(var.allowed_prefixes)
+      CRITICALITY_TAG_KEY    = var.criticality_tag
       GENERATION_INCREMENTAL = "son"
-      ACCOUNT_ID          = data.aws_caller_identity.current.account_id
-      BATCH_ROLE_ARN      = aws_iam_role.batch_job_role.arn
+      ACCOUNT_ID             = data.aws_caller_identity.current.account_id
+      BATCH_ROLE_ARN         = aws_iam_role.batch_job_role.arn
     }
   }
 
@@ -582,6 +578,7 @@ resource "aws_lambda_function" "incremental_backup" {
     Environment = var.environment
   }
 }
+
 
 resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn                   = aws_sqs_queue.s3_events_queue.arn
