@@ -15,3 +15,6 @@ iniciativas-backup/central-resources/terraform.tfstate
 iniciativas-backup/central-resources/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/terraform-provider-aws_v5.100.0_x5.exe
 iniciativas-backup/central-resources/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/LICENSE.txt
 iniciativas-backup/central-resources/.terraform.lock.hcl
+iniciativas-backup/docs/s3-lifecycle-diagram.md
+iniciativas-backup/central-resources/terraform.tfstate.backup
+iniciativas-backup/initiative-logic/terraform.tfstate.backup

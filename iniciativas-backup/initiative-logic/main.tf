@@ -166,6 +166,13 @@ resource "aws_iam_role_policy" "find_resources" {
         Action   = ["tag:GetResources"],
         Resource = "*"
       },
+      # Leer tags de buckets S3 (necesario para determinar criticidad)
+      {
+        Sid      = "AllowReadBucketTags",
+        Effect   = "Allow",
+        Action   = ["s3:GetBucketTagging"],
+        Resource = "arn:aws:s3:::*"
+      },
       # Permisos sobre S3 buckets origen para configurar inventario y notificaciones
       {
         Sid    = "AllowS3InventoryAndNotifications",
