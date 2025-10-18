@@ -131,7 +131,7 @@ module "initiative_logic" {
   sufijo_recursos = var.sufijo_recursos
 
   # DEPENDENCIA EXPLÍCITA: Esperar a que central_resources termine
-  depends_on = [module.central_resources]
+  #depends_on = [module.central_resources]
 }
 
 // ============================================================================
@@ -141,36 +141,36 @@ module "initiative_logic" {
 output "deployment_summary" {
   description = "Resumen del despliegue completo"
   value = {
-    account_id = local.account_id
-    region     = local.region
+    account_id  = local.account_id
+    region      = local.region
     environment = var.environment
-    
+
     central_resources = {
       bucket_name = module.central_resources.central_backup_bucket_name
       bucket_arn  = module.central_resources.central_backup_bucket_arn
       vault_arn   = module.central_resources.backup_vault_arn
     }
-    
+
     initiative_logic = {
-      state_machine_arn = module.initiative_logic.state_machine_arn
-      find_resources_lambda_arn = module.initiative_logic.find_resources_lambda_arn
+      state_machine_arn             = module.initiative_logic.state_machine_arn
+      find_resources_lambda_arn     = module.initiative_logic.find_resources_lambda_arn
       incremental_backup_lambda_arn = module.initiative_logic.incremental_backup_lambda_arn
-      sqs_queue_url = module.initiative_logic.sqs_queue_url
+      sqs_queue_url                 = module.initiative_logic.sqs_queue_url
     }
-    
+
     optimization = {
-      versioning_status = "Suspended"
-      operational_cleanup_days = 7
-      son_retention_critico = var.gfs_rules["Critico"].son_retention_days
+      versioning_status          = "Suspended"
+      operational_cleanup_days   = 7
+      son_retention_critico      = var.gfs_rules["Critico"].son_retention_days
       son_retention_menoscritico = var.gfs_rules["MenosCritico"].son_retention_days
-      estimated_monthly_savings = "65-68%"
+      estimated_monthly_savings  = "65-68%"
     }
   }
 }
 
 output "validation_commands" {
   description = "Comandos para validar el despliegue"
-  value = <<-EOT
+  value       = <<-EOT
   
   ========================================
   🔍 COMANDOS DE VALIDACIÓN

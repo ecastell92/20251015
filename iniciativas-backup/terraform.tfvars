@@ -1,6 +1,7 @@
 # ============================================================================
-# Root Configuration - Unified Terraform Variables
-# ESTRATEGIA ECONÓMICA OPTIMIZADA
+# Configuración de Variables - Central Resources
+# ============================================================================
+# IMPORTANTE: Este archivo debe estar sincronizado con initiative-logic
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -13,165 +14,110 @@ tenant      = "00"
 iniciativa  = "mvp"
 
 # ----------------------------------------------------------------------------
-# BUCKET CENTRAL
+# BUCKET CENTRAL - NOMBRE COMPLETO (Sin partes)
 # ----------------------------------------------------------------------------
 
+# Nombre completo del bucket (sin construcción con partes)
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
-central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
-sufijo_recursos            = "bck-001-aws-notinet"
+
+central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
+
+sufijo_recursos = "bck-001-aws"
 
 # ----------------------------------------------------------------------------
-# REGLAS GFS OPTIMIZADAS (Ahorro 65%)
+# REGLAS GFS (Grandfather-Father-Son) POR CRITICIDAD
 # ----------------------------------------------------------------------------
 
 gfs_rules = {
-  # ========================================================================
-  # CRÍTICO: RPO 12h
-  # Incrementales: 14 días en STANDARD
-  # Full semanales: 1 año (90d GLACIER_IR → DEEP_ARCHIVE)
-  # Full mensuales: 2 años en DEEP_ARCHIVE
-  # ========================================================================
+  # CRITICO: 5 años, IR 180d -> DA
   Critico = {
     enable                     = true
-    start_storage_class        = "STANDARD"      # Acceso rápido
-    son_retention_days         = 14              # 2 semanas
-    father_da_days             = 90              # Transición a DA
-    father_retention_days      = 365             # 1 año
+    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
+    son_retention_days         = 14           # 2 semanas de incrementales
+    father_da_days             = 90           # Transición a DA (mínimo S3)
+    father_retention_days      = 365          # 1 año de full semanales
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 0               # DA inmediato
-    grandfather_retention_days = 730             # 2 años
+    grandfather_da_days        = 0   # DA inmediato para auditoría
+    grandfather_retention_days = 730 # 2 años de auditoría
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # ========================================================================
-  # MENOS CRÍTICO: RPO 24h
-  # Incrementales: 7 días en STANDARD
-  # Full quincenales: 90 días (90d GLACIER_IR)
-  # Full trimestrales: 1 año en DEEP_ARCHIVE
-  # ========================================================================
+  # MENOS CRITICO: 5 años, IR 90d -> DA
   MenosCritico = {
     enable                     = true
-    start_storage_class        = "STANDARD"
-    son_retention_days         = 7               # 1 semana
-    father_da_days             = 90
-    father_retention_days      = 90              # Mínimo
+    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
+    son_retention_days         = 7            # 1 semana de incrementales
+    father_da_days             = 90           # Transición a DA
+    father_retention_days      = 91           # Mínimo posible
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 0
-    grandfather_retention_days = 365             # 1 año
+    grandfather_da_days        = 0   # DA inmediato
+    grandfather_retention_days = 365 # 1 año de auditoría
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # ========================================================================
-  # NO CRÍTICO: Sin incrementales
-  # Full mensuales: 90 días en GLACIER
-  # ========================================================================
+  # NO CRITICO: Directo a GLACIER, eliminar a 90d
   NoCritico = {
     enable                     = true
-    start_storage_class        = "GLACIER"       # Más barato
-    son_retention_days         = 0               # Sin incrementales
-    father_da_days             = 0
-    father_retention_days      = 90              # Mínimo GLACIER
+    start_storage_class        = "GLACIER" # Más barato (sin incrementales)
+    son_retention_days         = 0         # Sin incrementales (ahorro)
+    father_da_days             = 0         # Quedarse en GLACIER
+    father_retention_days      = 90        # Mínimo GLACIER (90d)
     father_archive_class       = "GLACIER"
-    grandfather_da_days        = 0
-    grandfather_retention_days = 0               # Sin grandfather
+    grandfather_da_days        = 0 # Sin grandfather (ahorro)
+    grandfather_retention_days = 0 # Sin retención larga
     grandfather_archive_class  = "GLACIER"
   }
 }
 
 # ----------------------------------------------------------------------------
-# SCHEDULES OPTIMIZADOS
+# LIFECYCLE RULES LEGACY (Por compatibilidad - DEPRECATED)
+# ----------------------------------------------------------------------------
+# NOTA: Estas reglas están deshabilitadas cuando gfs_rules.enable=true
+
+lifecycle_rules = {
+  Critico      = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 365, incremental_expiration_days = 14, incremental_glacier_transition_days = 0, use_glacier_ir = true }
+  MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 90, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = true }
+  NoCritico    = { glacier_transition_days = 0, deep_archive_transition_days = 0, expiration_days = 90, incremental_expiration_days = 0, incremental_glacier_transition_days = 0, use_glacier_ir = false }
+}
+# ----------------------------------------------------------------------------
+# SCHEDULES OPTIMIZADOS POR CRITICIDAD
 # ----------------------------------------------------------------------------
 
 schedule_expressions = {
+  # ========================================================================
+  # CRÍTICO: RPO 12h
+  # ========================================================================
   Critico = {
-    incremental = "rate(12 hours)"           # RPO 12h
-    sweep       = "rate(7 days)"             # Full semanal
-    grandfather = "cron(0 3 1 * ? *)"        # 1ro de cada mes 3 AM UTC
+    incremental = "rate(12 hours)"    # Cada 12h (RPO cumplido)
+    sweep       = "rate(7 days)"      # Full semanal (Father)
+    grandfather = "cron(0 3 1 * ? *)" # 1ro de cada mes a las 3 AM UTC
   }
 
+  # ========================================================================
+  # MENOS CRÍTICO: RPO 24h
+  # ========================================================================
   MenosCritico = {
-    incremental = "rate(24 hours)"           # RPO 24h
-    sweep       = "rate(14 days)"            # Full quincenal (ahorro 50%)
-    grandfather = "cron(0 3 1 */3 ? *)"      # Trimestral
+    incremental = "rate(24 hours)"      # Cada 24h (RPO cumplido)
+    sweep       = "rate(14 days)"       # Full quincenal (Father)
+    grandfather = "cron(0 3 1 */3 ? *)" # Cada 3 meses (trimestral)
   }
 
+  # ========================================================================
+  # NO CRÍTICO: Solo full mensuales (SIN incrementales)
+  # ========================================================================
   NoCritico = {
-    # incremental: OMITIDO (ahorro 100%)
-    sweep       = "rate(30 days)"            # Full mensual
+    # incremental: OMITIDO (ahorro del 100% en incrementales)
+    sweep = "rate(30 days)" # Full mensual
     # grandfather: OMITIDO (ahorro)
   }
 }
 
-# ----------------------------------------------------------------------------
-# CONFIGURACIÓN DE BACKUPS
-# ----------------------------------------------------------------------------
-
-criticality_tag = "BackupCriticality"
-
-allowed_prefixes = {
-  Critico      = []  # Todos los objetos
-  MenosCritico = []  # Todos los objetos
-  NoCritico    = []  # Todos los objetos
-}
-
-force_full_on_first_run     = false   # Incrementales siempre incrementales
-fallback_max_objects        = 100000  # Límite fallback
-fallback_time_limit_seconds = 300     # 5 minutos máximo
-
-# ----------------------------------------------------------------------------
-# TAGS PARA COST ALLOCATION
-# ----------------------------------------------------------------------------
-
-backup_tags = {
-  ManagedBy    = "Terraform"
-  Project      = "DataPlatformBackup"
-  Environment  = "dev"
-  Initiative   = "mvp"
-  CostStrategy = "optimized"
-  Owner        = "data-team"
-}
 
 # ----------------------------------------------------------------------------
 # VALIDACIONES S3
 # ----------------------------------------------------------------------------
 
-min_deep_archive_offset_days = 90  # Mínimo requerido por S3
+min_deep_archive_offset_days = 90 # Mínimo requerido por S3
 
-# ----------------------------------------------------------------------------
-# SEGURIDAD (Deshabilitado por defecto para simplicidad)
-# ----------------------------------------------------------------------------
 
-enable_object_lock          = false
-object_lock_mode            = "COMPLIANCE"
-object_lock_retention_days  = 0
-deny_delete_enabled         = false
-allow_delete_principals     = []
-require_mfa_for_delete      = false
 
-# ----------------------------------------------------------------------------
-# LIFECYCLE RULES LEGACY (NO SE USAN - Solo compatibilidad)
-# ----------------------------------------------------------------------------
-
-lifecycle_rules = {
-  Critico      = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 365, incremental_expiration_days = 14, incremental_glacier_transition_days = 0, use_glacier_ir = false }
-  MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 90, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = false }
-  NoCritico    = { glacier_transition_days = 0, deep_archive_transition_days = 0, expiration_days = 90, incremental_expiration_days = 0, incremental_glacier_transition_days = 0, use_glacier_ir = false }
-}
-
-# ============================================================================
-# RESUMEN DE OPTIMIZACIONES
-# ============================================================================
-#
-# ✅ Versionado: Suspendido (ahorro ~30%)
-# ✅ Archivos operacionales: 7 días (vs 21)
-# ✅ Crítico incrementales: 14 días (vs 45)
-# ✅ Menos Crítico incrementales: 7 días (vs 30)
-# ✅ No Crítico: Sin incrementales (ahorro 100%)
-# ✅ Full semanales: GLACIER_IR 90d → DEEP_ARCHIVE
-# ✅ Full mensuales: DEEP_ARCHIVE inmediato
-#
-# 💰 AHORRO ESTIMADO: 65-68%
-# 📊 De $27,138/mes a $8,642/mes (10 TB)
-# 🎯 RPO mantenido: Crítico 12h, Menos Crítico 24h
-#
-# ============================================================================

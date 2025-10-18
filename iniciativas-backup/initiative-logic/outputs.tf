@@ -32,10 +32,10 @@ output "incremental_backup_lambda_arn" {
   value       = aws_lambda_function.incremental_backup.arn
 }
 
-output "backup_configurations_lambda_arn" {
-  description = "ARN de la Lambda backup_configurations"
-  value       = aws_lambda_function.backup_configurations.arn
-}
+# output "backup_configurations_lambda_arn" {
+#   description = "ARN de la Lambda backup_configurations"
+#   value       = aws_lambda_function.backup_configurations.arn
+# }
 
 output "sqs_queue_arn" {
   description = "ARN de la cola SQS para eventos S3"
@@ -79,17 +79,17 @@ output "schedules_created" {
 output "lambda_functions" {
   description = "Mapa de todas las funciones Lambda desplegadas"
   value = {
-    find_resources         = aws_lambda_function.find_resources.function_name
-    filter_inventory       = aws_lambda_function.filter_inventory.function_name
-    launch_batch_job       = aws_lambda_function.launch_batch_job.function_name
-    incremental_backup     = aws_lambda_function.incremental_backup.function_name
-    backup_configurations  = aws_lambda_function.backup_configurations.function_name
+    find_resources        = aws_lambda_function.find_resources.function_name
+    filter_inventory      = aws_lambda_function.filter_inventory.function_name
+    launch_batch_job      = aws_lambda_function.launch_batch_job.function_name
+    incremental_backup    = aws_lambda_function.incremental_backup.function_name
+    backup_configurations = aws_lambda_function.backup_configurations.function_name
   }
 }
 
 output "monitoring_commands" {
   description = "Comandos útiles para monitoreo"
-  value = <<-EOT
+  value       = <<-EOT
   
   # Ver logs de find_resources
   aws logs tail /aws/lambda/${aws_lambda_function.find_resources.function_name} --follow

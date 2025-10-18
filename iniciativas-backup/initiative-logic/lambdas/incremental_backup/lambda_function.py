@@ -8,6 +8,7 @@ CAMBIOS:
 - Cifrado unificado a AES256
 - Logs mejorados
 - Mejor manejo de errores
+- ✅ Prefijo con timestamp unificado
 """
 
 import boto3
@@ -119,6 +120,7 @@ def upload_manifest(
         f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
         f"manifest-{run_id}.csv"
     )
+    
 
     csv_body = "\n".join(f"{source_bucket},{key}" for key in sorted(object_keys))
 
@@ -166,13 +168,14 @@ def submit_batch_job(
 ) -> str:
     """Crea un job de S3 Batch Operations para copiar los objetos."""
     
-    # Prefijo de destino para los datos
+    # ✅ CAMBIO: Agregado timestamp al data_prefix
     data_prefix = (
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/"
         f"year={window_start.strftime('%Y')}/month={window_start.strftime('%m')}/"
-        f"day={window_start.strftime('%d')}/hour={window_start.strftime('%H')}"
+        f"day={window_start.strftime('%d')}/hour={window_start.strftime('%H')}/"
+        f"timestamp={run_id}"  # ✅ AGREGADO
     )
 
     # Prefijo de reportes
