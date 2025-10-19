@@ -1,90 +1,97 @@
 # ============================================================================
-# Configuración de Variables - Central Resources
+# EJEMPLO DE CONFIGURACIÓN - Central Resources (SOLO DOCUMENTACIÓN)
 # ============================================================================
-# IMPORTANTE: Este archivo debe estar sincronizado con initiative-logic
+# ⚠️ IMPORTANTE: Este archivo NO se usa en producción
+# ⚠️ Los valores reales deben configurarse en: iniciativas-backup/terraform.tfvars
+# ⚠️ Este archivo solo sirve como referencia de qué valores necesita el módulo
 # ============================================================================
 
-# ----------------------------------------------------------------------------
-# CONFIGURACIÓN BÁSICA
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO: Configuración básica
+# ─────────────────────────────────────────────────────────────────────────────
 
 aws_region  = "eu-west-1"
 environment = "dev"
 tenant      = "00"
 
-# ----------------------------------------------------------------------------
-# BUCKET CENTRAL - NOMBRE COMPLETO (Sin partes)
-# ----------------------------------------------------------------------------
-
-# Nombre completo del bucket (sin construcción con partes)
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
+central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
+sufijo_recursos            = "bck-001-aws-notinet"
 
-central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
-
-sufijo_recursos = "bck-001-aws"
-
-# ----------------------------------------------------------------------------
-# REGLAS GFS (Grandfather-Father-Son) POR CRITICIDAD
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO: Reglas GFS
+# ─────────────────────────────────────────────────────────────────────────────
 
 gfs_rules = {
-  # CRITICO: 5 años, IR 180d -> DA
   Critico = {
     enable                     = true
-    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
-    son_retention_days         = 14           # 2 semanas de incrementales
-    father_da_days             = 90           # Transición a DA (mínimo S3)
-    father_retention_days      = 365          # 1 año de full semanales
+    start_storage_class        = "GLACIER_IR"
+    son_retention_days         = 14
+    father_da_days             = 90
+    father_retention_days      = 365
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 0   # DA inmediato para auditoría
-    grandfather_retention_days = 730 # 2 años de auditoría
+    grandfather_da_days        = 0
+    grandfather_retention_days = 730
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # MENOS CRITICO: 5 años, IR 90d -> DA
   MenosCritico = {
     enable                     = true
-    start_storage_class        = "GLACIER_IR" # Incrementales en GLACIER_IR
-    son_retention_days         = 7            # 1 semana de incrementales
-    father_da_days             = 90           # Transición a DA
-    father_retention_days      = 90           # Mínimo posible
+    start_storage_class        = "GLACIER_IR"
+    son_retention_days         = 7
+    father_da_days             = 90
+    father_retention_days      = 120
     father_archive_class       = "DEEP_ARCHIVE"
-    grandfather_da_days        = 0   # DA inmediato
-    grandfather_retention_days = 365 # 1 año de auditoría
+    grandfather_da_days        = 0
+    grandfather_retention_days = 365
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # NO CRITICO: Directo a GLACIER, eliminar a 90d
   NoCritico = {
     enable                     = true
-    start_storage_class        = "GLACIER" # Más barato (sin incrementales)
-    son_retention_days         = 0         # Sin incrementales (ahorro)
-    father_da_days             = 0         # Quedarse en GLACIER
-    father_retention_days      = 90        # Mínimo GLACIER (90d)
+    start_storage_class        = "GLACIER"
+    son_retention_days         = 0
+    father_da_days             = 0
+    father_retention_days      = 90
     father_archive_class       = "GLACIER"
-    grandfather_da_days        = 0 # Sin grandfather (ahorro)
-    grandfather_retention_days = 0 # Sin retención larga
+    grandfather_da_days        = 0
+    grandfather_retention_days = 0
     grandfather_archive_class  = "GLACIER"
   }
 }
 
-# ----------------------------------------------------------------------------
-# LIFECYCLE RULES LEGACY (Por compatibilidad - DEPRECATED)
-# ----------------------------------------------------------------------------
-# NOTA: Estas reglas están deshabilitadas cuando gfs_rules.enable=true
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO: Validaciones
+# ─────────────────────────────────────────────────────────────────────────────
+
+min_deep_archive_offset_days = 90
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO: Seguridad (todas deshabilitadas por defecto)
+# ─────────────────────────────────────────────────────────────────────────────
+
+enable_object_lock         = false
+object_lock_mode           = "COMPLIANCE"
+object_lock_retention_days = 0
+deny_delete_enabled        = false
+allow_delete_principals    = []
+require_mfa_for_delete     = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO: Lifecycle rules legacy (deprecated)
+# ─────────────────────────────────────────────────────────────────────────────
 
 lifecycle_rules = {
   Critico      = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 365, incremental_expiration_days = 14, incremental_glacier_transition_days = 0, use_glacier_ir = true }
-  MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 90, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = true }
+  MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 120, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = true }
   NoCritico    = { glacier_transition_days = 0, deep_archive_transition_days = 0, expiration_days = 90, incremental_expiration_days = 0, incremental_glacier_transition_days = 0, use_glacier_ir = false }
 }
 
-
-# ----------------------------------------------------------------------------
-# VALIDACIONES S3
-# ----------------------------------------------------------------------------
-
-min_deep_archive_offset_days = 90 # Mínimo requerido por S3
-
-
-
+# ═════════════════════════════════════════════════════════════════════════════
+# NOTA FINAL
+# ═════════════════════════════════════════════════════════════════════════════
+# Para usar este módulo, configurar los valores en:
+#   iniciativas-backup/terraform.tfvars
+#
+# El módulo raíz (main.tf) pasará los valores automáticamente a este submódulo
+# ═════════════════════════════════════════════════════════════════════════════

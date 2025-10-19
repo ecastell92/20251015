@@ -103,11 +103,11 @@ module "initiative_logic" {
   source = "./initiative-logic"
 
   # Configuración básica
-  aws_region         = var.aws_region
-  iniciativa         = var.iniciativa
-  environment        = var.environment
-  tenant             = var.tenant
-  central_account_id = local.account_id
+  aws_region  = var.aws_region
+  iniciativa  = var.iniciativa
+  environment = var.environment
+  tenant      = var.tenant
+  #central_account_id = local.account_id
 
   # Referencia al bucket central (output del módulo anterior)
   central_backup_bucket_name = module.central_resources.central_backup_bucket_name

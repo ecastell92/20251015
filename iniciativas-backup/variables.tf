@@ -203,19 +203,31 @@ variable "force_full_on_first_run" {
 variable "fallback_max_objects" {
   description = "Límite máximo de objetos en fallback (null = sin límite)"
   type        = number
-  default     = null
+  default     = 100000
 }
 
 variable "fallback_time_limit_seconds" {
   description = "Tiempo máximo (segundos) para fallback (null = sin límite)"
   type        = number
-  default     = null
+  default     = 300
 }
 
 variable "backup_tags" {
   description = "Tags aplicados a recursos de backup para cost allocation"
   type        = map(string)
   default     = {}
+}
+
+
+variable "min_deep_archive_offset_days" {
+  description = "Offset mínimo entre GLACIER_IR y DEEP_ARCHIVE (requisito S3)"
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.min_deep_archive_offset_days >= 90
+    error_message = "S3 requiere mínimo 90 días entre GLACIER_IR y DEEP_ARCHIVE."
+  }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

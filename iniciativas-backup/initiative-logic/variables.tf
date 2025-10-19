@@ -25,20 +25,26 @@ variable "tenant" {
   type        = string
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BUCKET CENTRAL
+# ─────────────────────────────────────────────────────────────────────────────
 
 variable "central_backup_bucket_name" {
-  description = "Name of the central backup S3 bucket"
+  description = "Nombre del bucket central de backups"
   type        = string
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURACIÓN DE BACKUPS
+# ─────────────────────────────────────────────────────────────────────────────
+
 variable "criticality_tag" {
-  description = "Tag key that defines backup criticality on resources"
+  description = "Tag key que define criticidad"
   type        = string
-  default     = "BackupCriticality"
 }
 
 variable "allowed_prefixes" {
-  description = "Mapping of criticality to list of allowed S3 prefixes for event‑driven backups"
+  description = "Prefijos permitidos por criticidad"
   type        = map(list(string))
   default = {
     Critico      = [""],
@@ -48,7 +54,7 @@ variable "allowed_prefixes" {
 }
 
 variable "schedule_expressions" {
-  description = "Schedules por criticidad: incremental (opcional) y sweep (full)"
+  description = "Expresiones de schedule por criticidad"
   type = map(object({
     incremental = optional(string)
     sweep       = string
@@ -57,37 +63,30 @@ variable "schedule_expressions" {
 }
 
 variable "backup_tags" {
-  description = "Map of tags applied to backup resources for cost allocation"
+  description = "Tags para recursos de backup"
   type        = map(string)
-  default     = {}
 }
 
-# Control de primera corrida y fallback del inventario
+variable "sufijo_recursos" {
+  description = "Sufijo para nombres únicos"
+  type        = string
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTROL DE BACKUPS
+# ─────────────────────────────────────────────────────────────────────────────
+
 variable "force_full_on_first_run" {
-  description = "Si true, la primera corrida incremental se ejecuta como FULL (sin filtrar por checkpoint)"
+  description = "Forzar full en primera corrida incremental"
   type        = bool
-  default     = false
 }
 
 variable "fallback_max_objects" {
-  description = "Límite máximo de objetos a incluir en el manifiesto generado por fallback (null = sin límite)"
+  description = "Límite de objetos en fallback"
   type        = number
-  default     = null
 }
 
 variable "fallback_time_limit_seconds" {
-  description = "Tiempo máximo (segundos) para generar manifiesto por fallback (null = sin límite)"
+  description = "Tiempo máximo para fallback"
   type        = number
-  default     = null
-}
-
-variable "central_account_id" {
-  description = "AWS Account ID of the central backup account"
-  type        = string
-}
-
-
-variable "sufijo_recursos" {
-  description = "Suffix to ensure unique names for global resources"
-  type        = string
 }

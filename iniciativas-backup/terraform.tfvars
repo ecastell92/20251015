@@ -15,128 +15,93 @@ tenant      = "00"
 iniciativa  = "mvp"
 cuenta      = "905418243844"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BUCKET CENTRAL (REQUERIDO)
+# ─────────────────────────────────────────────────────────────────────────────
+
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
 central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
 sufijo_recursos            = "bck-001-aws-notinet"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ⭐ FRECUENCIAS DE BACKUP (CONFIGURAR AQUÍ)
+# SCHEDULES POR CRITICIDAD (REQUERIDO)
 # ─────────────────────────────────────────────────────────────────────────────
-# 🎯 IMPORTANTE: Cambiar estos valores adapta TODO el sistema automáticamente
-#
-# REGLAS DE ROUTING AUTOMÁTICO:
-# - Frecuencia < 24h  → Usa incremental_backup (event-driven con SQS)
-# - Frecuencia >= 24h → Usa filter_inventory (manifest diff con checkpoint)
-#
-# MAPEO DE CRITICIDAD:
-# - 1h - 12h   → Datos Críticos    → GLACIER_IR → Retención 14d/365d/730d
-# - 12h - 24h  → Menos Críticos    → GLACIER_IR → Retención 7d/120d/365d
-# - > 24h      → No Críticos       → GLACIER    → Retención solo full 90d
-# ─────────────────────────────────────────────────────────────────────────────
-
-backup_frequencies = {
-  # ┌─────────────────────────────────────────────────────────────┐
-  # │ CRÍTICO: Frecuencia de incrementales (1-12 horas)           │
-  # ├─────────────────────────────────────────────────────────────┤
-  # │ Valores recomendados: 4, 6, 8, 12                          │
-  # │ Método automático: event_driven (< 24h)                    │
-  # │ RPO objetivo: Minutos a horas                               │
-  # └─────────────────────────────────────────────────────────────┘
-  critical_hours = 12 # ← CAMBIAR AQUÍ (ej: 6 para cada 6 horas)
-
-  # ┌─────────────────────────────────────────────────────────────┐
-  # │ MENOS CRÍTICO: Frecuencia de incrementales (12-24 horas)   │
-  # ├─────────────────────────────────────────────────────────────┤
-  # │ Valores recomendados: 12, 18, 24                           │
-  # │ Método automático:                                          │
-  # │   - < 24h: event_driven                                     │
-  # │   - ≥ 24h: manifest_diff                                    │
-  # │ RPO objetivo: Horas a 1 día                                 │
-  # └─────────────────────────────────────────────────────────────┘
-  less_critical_hours = 24 # ← CAMBIAR AQUÍ (ej: 18 para cada 18 horas)
-
-  # ┌─────────────────────────────────────────────────────────────┐
-  # │ NO CRÍTICO: Frecuencia de full backups (>24 horas)         │
-  # ├─────────────────────────────────────────────────────────────┤
-  # │ Valores recomendados: 168 (7d), 720 (30d)                  │
-  # │ Método: manifest_diff (sin incrementales para ahorro)      │
-  # │ RPO objetivo: Días a semanas                                │
-  # └─────────────────────────────────────────────────────────────┘
-  non_critical_hours = 168 # ← CAMBIAR AQUÍ (ej: 720 para 30 días)
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# REGLAS DE SCHEDULE EXPRESSIONS 
+# Define cuándo se ejecutan los backups para cada nivel de criticidad
+# 
+# incremental: Backups incrementales (opcional - solo si RPO < 24h)
+# sweep:       Backups full regulares (Father generation)
+# grandfather: Backups full de larga retención (opcional)
 # ─────────────────────────────────────────────────────────────────────────────
 
 schedule_expressions = {
   # ========================================================================
-  # CRÍTICO: RPO 12h
+  # CRÍTICO: RPO 12 horas
   # ========================================================================
   Critico = {
-    incremental = "rate(12 hours)"    # Cada 12h (RPO cumplido)
-    sweep       = "rate(7 days)"      # Full semanal (Father)
-    grandfather = "cron(0 3 1 * ? *)" # 1ro de cada mes a las 3 AM UTC
+    incremental = "rate(12 hours)"    # Cada 12h
+    sweep       = "rate(7 days)"      # Full semanal
+    grandfather = "cron(0 3 1 * ? *)" # Full mensual (1er día, 3 AM UTC)
   }
 
   # ========================================================================
-  # MENOS CRÍTICO: RPO 24h
+  # MENOS CRÍTICO: RPO 24 horas
   # ========================================================================
   MenosCritico = {
-    incremental = "rate(24 hours)"      # Cada 24h (RPO cumplido)
-    sweep       = "rate(14 days)"       # Full quincenal (Father)
-    grandfather = "cron(0 3 1 */3 ? *)" # Cada 3 meses (trimestral)
+    incremental = "rate(24 hours)"      # Cada 24h
+    sweep       = "rate(14 days)"       # Full quincenal
+    grandfather = "cron(0 3 1 */3 ? *)" # Full trimestral
   }
 
   # ========================================================================
-  # NO CRÍTICO: Solo full mensuales (SIN incrementales)
+  # NO CRÍTICO: Solo full mensuales (SIN incrementales para ahorrar)
   # ========================================================================
   NoCritico = {
-    # incremental: OMITIDO (ahorro del 100% en incrementales)
-    sweep = "rate(30 days)" # Full mensual
-    # grandfather: OMITIDO (ahorro)
+    # incremental: OMITIDO intencionalmente (ahorro de costos)
+    sweep = "rate(30 days)" # Full mensual únicamente
+    # grandfather: OMITIDO intencionalmente (ahorro de costos)
   }
 }
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# REGLAS GFS (Grandfather-Father-Son) - MANTIENEN CONFIGURACIÓN ACTUAL
+# REGLAS GFS POR CRITICIDAD (REQUERIDO)
 # ─────────────────────────────────────────────────────────────────────────────
-# ℹ️ Estas reglas se vinculan automáticamente con las frecuencias configuradas
-# ℹ️ Storage classes y transiciones se mantienen como están
+# Grandfather-Father-Son: Define retenciones y storage classes
+# 
+# Son:         Incrementales diarios
+# Father:      Full semanales/quincenales
+# Grandfather: Full mensuales/trimestrales para auditoría
 # ─────────────────────────────────────────────────────────────────────────────
 
 gfs_rules = {
   # ══════════════════════════════════════════════════════════════════════════
-  # CRÍTICO (1-12 horas)
+  # CRÍTICO: Retención extendida (14d/365d/730d)
   # ══════════════════════════════════════════════════════════════════════════
   Critico = {
     enable              = true
-    start_storage_class = "GLACIER_IR" # Acceso rápido para incrementales
+    start_storage_class = "GLACIER_IR" # Acceso rápido
 
-    # Son: Incrementales diarios (event-driven si < 24h)
+    # Son: Incrementales cada 12h
     son_retention_days = 14 # 2 semanas
 
     # Father: Full semanales
-    father_da_days        = 90  # Transición a DEEP_ARCHIVE
-    father_retention_days = 365 # 1 año
+    father_da_days        = 90  # Transición a DEEP_ARCHIVE a los 90d
+    father_retention_days = 365 # Retener 1 año
     father_archive_class  = "DEEP_ARCHIVE"
 
     # Grandfather: Full mensuales (auditoría)
     grandfather_da_days        = 0   # DEEP_ARCHIVE inmediato
-    grandfather_retention_days = 730 # 2 años
+    grandfather_retention_days = 730 # Retener 2 años
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
   # ══════════════════════════════════════════════════════════════════════════
-  # MENOS CRÍTICO (12-24 horas)
+  # MENOS CRÍTICO: Retención moderada (7d/120d/365d)
   # ══════════════════════════════════════════════════════════════════════════
   MenosCritico = {
     enable              = true
     start_storage_class = "GLACIER_IR"
 
-    # Son: Incrementales diarios (método según frecuencia)
+    # Son: Incrementales cada 24h
     son_retention_days = 7 # 1 semana
 
     # Father: Full quincenales
@@ -151,21 +116,21 @@ gfs_rules = {
   }
 
   # ══════════════════════════════════════════════════════════════════════════
-  # NO CRÍTICO (>24 horas, solo full)
+  # NO CRÍTICO: Retención mínima (solo 90d full, sin incrementales)
   # ══════════════════════════════════════════════════════════════════════════
   NoCritico = {
     enable              = true
-    start_storage_class = "GLACIER" # Más barato (sin incrementales)
+    start_storage_class = "GLACIER" # Más barato (sin recuperación rápida)
 
-    # Son: Sin incrementales (ahorro de costos)
+    # Son: Sin incrementales (ahorro máximo)
     son_retention_days = 0
 
-    # Father: Full según frecuencia configurada
-    father_da_days        = 0  # Quedarse en GLACIER
-    father_retention_days = 90 # Mínimo GLACIER
+    # Father: Solo full mensuales
+    father_da_days        = 0  # Permanecer en GLACIER
+    father_retention_days = 90 # Mínimo requerido por GLACIER
     father_archive_class  = "GLACIER"
 
-    # Grandfather: Deshabilitado
+    # Grandfather: Deshabilitado (ahorro)
     grandfather_da_days        = 0
     grandfather_retention_days = 0
     grandfather_archive_class  = "GLACIER"
@@ -182,6 +147,11 @@ allowed_prefixes = {
   Critico      = [] # Todos los objetos
   MenosCritico = [] # Todos los objetos
   NoCritico    = [] # Todos los objetos
+
+  # Ejemplo con filtros:
+  # Critico      = ["data/", "logs/critical/"]
+  # MenosCritico = ["archive/", "temp/"]
+  # NoCritico    = ["cache/"]
 }
 
 backup_tags = {
@@ -248,7 +218,7 @@ lifecycle_rules = {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 📊 EJEMPLOS DE CONFIGURACIÓN
+#  EJEMPLOS DE CONFIGURACIÓN
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
