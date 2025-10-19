@@ -1,153 +1,80 @@
 # ============================================================================
-# Configuración de Variables - ROOT LEVEL (CORREGIDO)
+# CONFIGURACIÓN DE BACKUPS S3 - TERRAFORM.TFVARS
 # ============================================================================
-# Este archivo contiene TODAS las variables necesarias para desplegar
-# la solución de backups S3 desde el directorio raíz.
-#
-# Los archivos terraform.tfvars en central-resources/ e initiative-logic/
-# deben renombrarse a .example ya que NO se usan cuando se ejecuta desde root.
+# Este archivo contiene la configuración principal del sistema de backups.
+# CAMBIAR VALORES AQUÍ ACTUALIZA TODO EL SISTEMA AUTOMÁTICAMENTE
 # ============================================================================
 
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURACIÓN BÁSICA
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 aws_region  = "eu-west-1"
 environment = "dev"
 tenant      = "00"
 iniciativa  = "mvp"
+cuenta      = "905418243844"
 
-# ----------------------------------------------------------------------------
-# RECURSOS CENTRALES
-# ----------------------------------------------------------------------------
-
-# Nombre COMPLETO del bucket central (debe ser globalmente único)
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
+central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
+sufijo_recursos            = "bck-001-aws-notinet"
 
-# Nombre del AWS Backup Vault
-central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
+# ─────────────────────────────────────────────────────────────────────────────
+# ⭐ FRECUENCIAS DE BACKUP (CONFIGURAR AQUÍ)
+# ─────────────────────────────────────────────────────────────────────────────
+# 🎯 IMPORTANTE: Cambiar estos valores adapta TODO el sistema automáticamente
+#
+# REGLAS DE ROUTING AUTOMÁTICO:
+# - Frecuencia < 24h  → Usa incremental_backup (event-driven con SQS)
+# - Frecuencia >= 24h → Usa filter_inventory (manifest diff con checkpoint)
+#
+# MAPEO DE CRITICIDAD:
+# - 1h - 12h   → Datos Críticos    → GLACIER_IR → Retención 14d/365d/730d
+# - 12h - 24h  → Menos Críticos    → GLACIER_IR → Retención 7d/120d/365d
+# - > 24h      → No Críticos       → GLACIER    → Retención solo full 90d
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ✅ CORREGIDO: Unificado el sufijo para consistencia
-# Antes había dos valores: "bck-001-aws" y "bck-001-aws-notinet"
-sufijo_recursos = "bck-001-aws-notinet"
+backup_frequencies = {
+  # ┌─────────────────────────────────────────────────────────────┐
+  # │ CRÍTICO: Frecuencia de incrementales (1-12 horas)           │
+  # ├─────────────────────────────────────────────────────────────┤
+  # │ Valores recomendados: 4, 6, 8, 12                          │
+  # │ Método automático: event_driven (< 24h)                    │
+  # │ RPO objetivo: Minutos a horas                               │
+  # └─────────────────────────────────────────────────────────────┘
+  critical_hours = 12 # ← CAMBIAR AQUÍ (ej: 6 para cada 6 horas)
 
-# ----------------------------------------------------------------------------
-# CONFIGURACIÓN DE BACKUPS
-# ----------------------------------------------------------------------------
+  # ┌─────────────────────────────────────────────────────────────┐
+  # │ MENOS CRÍTICO: Frecuencia de incrementales (12-24 horas)   │
+  # ├─────────────────────────────────────────────────────────────┤
+  # │ Valores recomendados: 12, 18, 24                           │
+  # │ Método automático:                                          │
+  # │   - < 24h: event_driven                                     │
+  # │   - ≥ 24h: manifest_diff                                    │
+  # │ RPO objetivo: Horas a 1 día                                 │
+  # └─────────────────────────────────────────────────────────────┘
+  less_critical_hours = 24 # ← CAMBIAR AQUÍ (ej: 18 para cada 18 horas)
 
-# Tag key que define la criticidad en los recursos de origen
-criticality_tag = "BackupCriticality"
-
-# Prefijos permitidos por criticidad (vacío = todos los objetos)
-allowed_prefixes = {
-  Critico      = [] # Todos los objetos del bucket
-  MenosCritico = [] # Todos los objetos del bucket
-  NoCritico    = [] # Todos los objetos del bucket
+  # ┌─────────────────────────────────────────────────────────────┐
+  # │ NO CRÍTICO: Frecuencia de full backups (>24 horas)         │
+  # ├─────────────────────────────────────────────────────────────┤
+  # │ Valores recomendados: 168 (7d), 720 (30d)                  │
+  # │ Método: manifest_diff (sin incrementales para ahorro)      │
+  # │ RPO objetivo: Días a semanas                                │
+  # └─────────────────────────────────────────────────────────────┘
+  non_critical_hours = 168 # ← CAMBIAR AQUÍ (ej: 720 para 30 días)
 }
 
-# Tags para cost allocation y reportes
-backup_tags = {
-  ManagedBy    = "Terraform"
-  Project      = "DataPlatformBackup"
-  Environment  = "dev"
-  Initiative   = "mvp"
-  CostStrategy = "optimized"
-  Owner        = "DataEngineering"
-}
-
-# ----------------------------------------------------------------------------
-# CONTROL DE PRIMERA CORRIDA Y FALLBACK
-# ----------------------------------------------------------------------------
-
-# Si true, la primera corrida incremental se ejecuta como FULL
-# FALSE recomendado: permite que incrementales sean siempre incrementales
-force_full_on_first_run = false
-
-# Límites para fallback cuando aún no existe S3 Inventory
-fallback_max_objects        = 100000 # Máximo 100k objetos en fallback
-fallback_time_limit_seconds = 300    # Máximo 5 minutos de listado
-
-# ----------------------------------------------------------------------------
-# REGLAS GFS (Grandfather-Father-Son) POR CRITICIDAD
-# ----------------------------------------------------------------------------
-
-gfs_rules = {
-  # ========================================================================
-  # CRÍTICO: RPO 12h - Retención máxima
-  # ========================================================================
-  Critico = {
-    enable              = true
-    start_storage_class = "GLACIER_IR" # Acceso rápido para incrementales
-
-    # Son (Incrementales diarios)
-    son_retention_days = 14 # 2 semanas de incrementales
-
-    # Father (Full semanales)
-    father_da_days        = 90  # A DEEP_ARCHIVE después de 90d (mínimo S3)
-    father_retention_days = 365 # 1 año de retención total
-    father_archive_class  = "DEEP_ARCHIVE"
-
-    # Grandfather (Full mensuales - auditoría)
-    grandfather_da_days        = 0   # A DEEP_ARCHIVE inmediatamente
-    grandfather_retention_days = 730 # 2 años de auditoría
-    grandfather_archive_class  = "DEEP_ARCHIVE"
-  }
-
-  # ========================================================================
-  # MENOS CRÍTICO: RPO 24h - Retención media
-  # ========================================================================
-  MenosCritico = {
-    enable              = true
-    start_storage_class = "GLACIER_IR" # Acceso rápido para incrementales
-
-    # Son (Incrementales diarios)
-    son_retention_days = 7 # 1 semana de incrementales
-
-    # Father (Full quincenales)
-    father_da_days = 90 # A DEEP_ARCHIVE después de 90d
-    # ✅ CORREGIDO: Aumentado de 91 a 120 para margen de seguridad
-    # 91 días estaba muy cerca del mínimo de 90d para DEEP_ARCHIVE
-    father_retention_days = 120 # ~4 meses de retención
-    father_archive_class  = "DEEP_ARCHIVE"
-
-    # Grandfather (Full trimestrales)
-    grandfather_da_days        = 0   # A DEEP_ARCHIVE inmediatamente
-    grandfather_retention_days = 365 # 1 año de auditoría
-    grandfather_archive_class  = "DEEP_ARCHIVE"
-  }
-
-  # ========================================================================
-  # NO CRÍTICO: Solo full mensuales - Retención mínima
-  # ========================================================================
-  NoCritico = {
-    enable              = true
-    start_storage_class = "GLACIER" # Más barato (no hay incrementales)
-
-    # Son (Sin incrementales - ahorro de costos)
-    son_retention_days = 0 # No genera incrementales
-
-    # Father (Full mensuales únicamente)
-    father_da_days        = 0  # Quedarse en GLACIER (no a DA)
-    father_retention_days = 90 # Mínimo GLACIER (90 días)
-    father_archive_class  = "GLACIER"
-
-    # Grandfather (Deshabilitado - ahorro de costos)
-    grandfather_da_days        = 0
-    grandfather_retention_days = 0 # Sin retención larga
-    grandfather_archive_class  = "GLACIER"
-  }
-}
-
-# ----------------------------------------------------------------------------
-# SCHEDULES DE BACKUP POR CRITICIDAD
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# REGLAS DE SCHEDULE EXPRESSIONS 
+# ─────────────────────────────────────────────────────────────────────────────
 
 schedule_expressions = {
   # ========================================================================
   # CRÍTICO: RPO 12h
   # ========================================================================
   Critico = {
-    incremental = "rate(12 hours)"    # Cada 12h (cumple RPO)
+    incremental = "rate(12 hours)"    # Cada 12h (RPO cumplido)
     sweep       = "rate(7 days)"      # Full semanal (Father)
     grandfather = "cron(0 3 1 * ? *)" # 1ro de cada mes a las 3 AM UTC
   }
@@ -156,48 +83,140 @@ schedule_expressions = {
   # MENOS CRÍTICO: RPO 24h
   # ========================================================================
   MenosCritico = {
-    incremental = "rate(24 hours)"      # Cada 24h (cumple RPO)
+    incremental = "rate(24 hours)"      # Cada 24h (RPO cumplido)
     sweep       = "rate(14 days)"       # Full quincenal (Father)
-    grandfather = "cron(0 3 1 */3 ? *)" # Cada 3 meses (trimestral) a las 3 AM UTC
+    grandfather = "cron(0 3 1 */3 ? *)" # Cada 3 meses (trimestral)
   }
 
   # ========================================================================
-  # NO CRÍTICO: Solo full mensuales (SIN incrementales para ahorro)
+  # NO CRÍTICO: Solo full mensuales (SIN incrementales)
   # ========================================================================
   NoCritico = {
-    # incremental: OMITIDO intencionalmente (ahorra ~90% en este tier)
-    sweep = "rate(30 days)" # Full mensual únicamente
-    # grandfather: OMITIDO intencionalmente (ahorro adicional)
+    # incremental: OMITIDO (ahorro del 100% en incrementales)
+    sweep = "rate(30 days)" # Full mensual
+    # grandfather: OMITIDO (ahorro)
   }
 }
 
-# ----------------------------------------------------------------------------
-# VALIDACIONES DE S3
-# ----------------------------------------------------------------------------
 
-# Mínimo requerido por S3 entre GLACIER_IR y DEEP_ARCHIVE
-min_deep_archive_offset_days = 90
 
-# ----------------------------------------------------------------------------
-# SEGURIDAD (OPCIONAL - Por defecto deshabilitado)
-# ----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# REGLAS GFS (Grandfather-Father-Son) - MANTIENEN CONFIGURACIÓN ACTUAL
+# ─────────────────────────────────────────────────────────────────────────────
+# ℹ️ Estas reglas se vinculan automáticamente con las frecuencias configuradas
+# ℹ️ Storage classes y transiciones se mantienen como están
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Object Lock - Protección WORM (Write Once Read Many)
-# ⚠️ IMPORTANTE: Habilitar esto requiere RECREAR el bucket
+gfs_rules = {
+  # ══════════════════════════════════════════════════════════════════════════
+  # CRÍTICO (1-12 horas)
+  # ══════════════════════════════════════════════════════════════════════════
+  Critico = {
+    enable              = true
+    start_storage_class = "GLACIER_IR" # Acceso rápido para incrementales
+
+    # Son: Incrementales diarios (event-driven si < 24h)
+    son_retention_days = 14 # 2 semanas
+
+    # Father: Full semanales
+    father_da_days        = 90  # Transición a DEEP_ARCHIVE
+    father_retention_days = 365 # 1 año
+    father_archive_class  = "DEEP_ARCHIVE"
+
+    # Grandfather: Full mensuales (auditoría)
+    grandfather_da_days        = 0   # DEEP_ARCHIVE inmediato
+    grandfather_retention_days = 730 # 2 años
+    grandfather_archive_class  = "DEEP_ARCHIVE"
+  }
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # MENOS CRÍTICO (12-24 horas)
+  # ══════════════════════════════════════════════════════════════════════════
+  MenosCritico = {
+    enable              = true
+    start_storage_class = "GLACIER_IR"
+
+    # Son: Incrementales diarios (método según frecuencia)
+    son_retention_days = 7 # 1 semana
+
+    # Father: Full quincenales
+    father_da_days        = 90  # Transición a DEEP_ARCHIVE
+    father_retention_days = 120 # ~4 meses
+    father_archive_class  = "DEEP_ARCHIVE"
+
+    # Grandfather: Full trimestrales
+    grandfather_da_days        = 0   # DEEP_ARCHIVE inmediato
+    grandfather_retention_days = 365 # 1 año
+    grandfather_archive_class  = "DEEP_ARCHIVE"
+  }
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # NO CRÍTICO (>24 horas, solo full)
+  # ══════════════════════════════════════════════════════════════════════════
+  NoCritico = {
+    enable              = true
+    start_storage_class = "GLACIER" # Más barato (sin incrementales)
+
+    # Son: Sin incrementales (ahorro de costos)
+    son_retention_days = 0
+
+    # Father: Full según frecuencia configurada
+    father_da_days        = 0  # Quedarse en GLACIER
+    father_retention_days = 90 # Mínimo GLACIER
+    father_archive_class  = "GLACIER"
+
+    # Grandfather: Deshabilitado
+    grandfather_da_days        = 0
+    grandfather_retention_days = 0
+    grandfather_archive_class  = "GLACIER"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURACIÓN DE TAGS Y PREFIJOS
+# ─────────────────────────────────────────────────────────────────────────────
+
+criticality_tag = "BackupCriticality"
+
+allowed_prefixes = {
+  Critico      = [] # Todos los objetos
+  MenosCritico = [] # Todos los objetos
+  NoCritico    = [] # Todos los objetos
+}
+
+backup_tags = {
+  ManagedBy    = "Terraform"
+  Project      = "DataPlatformBackup"
+  Environment  = "dev"
+  Initiative   = "mvp"
+  CostStrategy = "optimized"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTROL DE PRIMERA CORRIDA Y FALLBACK
+# ─────────────────────────────────────────────────────────────────────────────
+
+force_full_on_first_run     = false  # Incrementales siempre son incrementales
+fallback_max_objects        = 100000 # Límite en fallback (sin inventario)
+fallback_time_limit_seconds = 300    # 5 minutos máximo
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VALIDACIONES Y SEGURIDAD
+# ─────────────────────────────────────────────────────────────────────────────
+
+min_deep_archive_offset_days = 90 # Requisito S3: mínimo entre GLACIER_IR y DA
+
+# Seguridad (opcional - por defecto deshabilitado)
 enable_object_lock         = false
-object_lock_mode           = "COMPLIANCE" # O "GOVERNANCE"
-object_lock_retention_days = 0            # 0 = deshabilitado
+object_lock_mode           = "COMPLIANCE"
+object_lock_retention_days = 0
+deny_delete_enabled        = false
+allow_delete_principals    = []
+require_mfa_for_delete     = false
 
-# Políticas de denegación de borrado
-deny_delete_enabled     = false
-allow_delete_principals = [] # ARNs de roles/users breakglass
-require_mfa_for_delete  = false
-
-# ----------------------------------------------------------------------------
-# LIFECYCLE RULES LEGACY (DEPRECATED - Mantener para compatibilidad)
-# ----------------------------------------------------------------------------
-# ⚠️ NOTA: Estas reglas están deshabilitadas cuando gfs_rules.enable=true
-# Se mantienen solo para compatibilidad con versiones anteriores
+# ─────────────────────────────────────────────────────────────────────────────
+# LIFECYCLE RULES LEGACY (DEPRECATED - mantener por compatibilidad)
+# ─────────────────────────────────────────────────────────────────────────────
 
 lifecycle_rules = {
   Critico = {
@@ -212,7 +231,7 @@ lifecycle_rules = {
   MenosCritico = {
     glacier_transition_days             = 0
     deep_archive_transition_days        = 90
-    expiration_days                     = 120 # ✅ CORREGIDO: Era 90
+    expiration_days                     = 120
     incremental_expiration_days         = 7
     incremental_glacier_transition_days = 0
     use_glacier_ir                      = true
@@ -228,44 +247,120 @@ lifecycle_rules = {
   }
 }
 
-# ============================================================================
-# NOTAS DE CONFIGURACIÓN
-# ============================================================================
+# ═════════════════════════════════════════════════════════════════════════════
+# 📊 EJEMPLOS DE CONFIGURACIÓN
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO 1: RPO MÁS AGRESIVO (6 HORAS PARA CRÍTICO)
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# 1. ESTRUCTURA DE COSTOS OPTIMIZADA:
-#    - Crítico: Incrementales cada 12h + Full semanal + Auditoría mensual
-#    - MenosCrítico: Incrementales cada 24h + Full quincenal + Auditoría trimestral
-#    - NoCrítico: Solo Full mensual (sin incrementales ni grandfather)
-#    - Ahorro estimado: 65-68% vs configuración estándar
+# backup_frequencies = {
+#   critical_hours      = 6   # Cada 6 horas (event-driven)
+#   less_critical_hours = 24
+#   non_critical_hours  = 168
+# }
 #
-# 2. RETENCIONES GFS:
-#    - Son (incrementales): 7-14 días según criticidad
-#    - Father (full regulares): 90-365 días según criticidad
-#    - Grandfather (auditoría): 365-730 días para Crítico/MenosCrítico, 0 para NoCrítico
+# RESULTADO AUTOMÁTICO:
+# ├─ Crítico: rate(6 hours)
+# ├─ Método: incremental_backup (event-driven)
+# ├─ Storage: GLACIER_IR
+# ├─ Retención: 14 días incrementales
+# └─ RPO: 6 horas
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO 2: CAMBIAR A MANIFEST DIFF PARA MENOS CRÍTICO
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# 3. TRANSICIONES A DEEP_ARCHIVE:
-#    - S3 requiere MÍNIMO 90 días entre GLACIER_IR y DEEP_ARCHIVE
-#    - Father: 90 días de offset (configurado)
-#    - Grandfather: Inmediato a DEEP_ARCHIVE (0 días)
+# backup_frequencies = {
+#   critical_hours      = 12
+#   less_critical_hours = 36  # Más de 24h → cambia a manifest diff
+#   non_critical_hours  = 168
+# }
 #
-# 4. ESTRATEGIA POR CRITICIDAD:
-#    - Tag "BackupCriticality" en buckets origen determina el tier
-#    - Valores válidos: "Critico", "MenosCritico", "NoCritico"
-#    - Buckets sin tag → default "MenosCritico"
+# RESULTADO AUTOMÁTICO:
+# ├─ Menos Crítico: rate(36 hours)
+# ├─ Método: filter_inventory (manifest diff)
+# ├─ Usa checkpoint para comparación
+# ├─ Storage: GLACIER_IR
+# └─ Retención: 7 días incrementales
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EJEMPLO 3: BACKUPS MENSUALES PARA NO CRÍTICO
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# 5. FALLBACK DE INVENTARIO:
-#    - Límites activos solo cuando S3 Inventory aún no está disponible
-#    - Después del primer inventario diario, estos límites no aplican
-#    - Previene timeouts en buckets muy grandes en primera ejecución
+# backup_frequencies = {
+#   critical_hours      = 12
+#   less_critical_hours = 24
+#   non_critical_hours  = 720  # 30 días
+# }
 #
-# 6. SEGURIDAD:
-#    - Por defecto: Sin Object Lock (más flexible, menos costo)
-#    - Cifrado: AES256 por defecto en bucket central
-#    - Opción de habilitar Object Lock si se requiere compliance estricto
+# RESULTADO AUTOMÁTICO:
+# ├─ No Crítico: rate(720 hours)
+# ├─ Método: manifest_diff (solo full)
+# ├─ Sin incrementales automáticos
+# ├─ Storage: GLACIER
+# └─ Retención: 90 días
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 🔍 CÓMO FUNCIONA EL ROUTING AUTOMÁTICO
+# ═════════════════════════════════════════════════════════════════════════════
 #
-# 7. EJECUCIÓN:
-#    - Desde directorio raíz: terraform init && terraform plan
-#    - Los tfvars de central-resources/ e initiative-logic/ son IGNORADOS
-#    - Solo este archivo se lee cuando se ejecuta desde root
+# El sistema decide automáticamente el método de backup:
 #
-# ============================================================================
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ PASO 1: Usuario cambia backup_frequencies                               │
+# └──────────────────────────────────────────────────────────────────────────┘
+#                                   │
+#                                   ▼
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ PASO 2: Terraform evalúa: frecuencia < 24h ?                            │
+# └──────────────────────────────────────────────────────────────────────────┘
+#                     │                                │
+#                     │ SÍ                             │ NO
+#                     ▼                                ▼
+#     ┌───────────────────────────┐      ┌──────────────────────────────┐
+#     │ METHOD: event_driven      │      │ METHOD: manifest_diff        │
+#     │                           │      │                              │
+#     │ - Habilita Lambda         │      │ - Usa filter_inventory       │
+#     │   incremental_backup      │      │ - Compara con checkpoint     │
+#     │ - Configura SQS trigger   │      │ - Schedule via EventBridge   │
+#     │ - Genera schedule rate(Xh)│      │ - Genera schedule rate(Xh)   │
+#     └───────────────────────────┘      └──────────────────────────────┘
+#                     │                                │
+#                     └────────────┬───────────────────┘
+#                                  │
+#                                  ▼
+#             ┌─────────────────────────────────────────┐
+#             │ PASO 3: Aplica storage class y          │
+#             │         retenciones según criticidad    │
+#             └─────────────────────────────────────────┘
+#
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 💡 TIPS DE CONFIGURACIÓN
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# 1. CAMBIAR FRECUENCIAS:
+#    - Solo modificar backup_frequencies
+#    - El resto se adapta automáticamente
+#
+# 2. VALIDAR CAMBIOS:
+#    terraform plan | grep -A 20 "backup_configuration_summary"
+#
+# 3. MONITOREAR MÉTODO USADO:
+#    - Logs de Lambda incremental_backup → event-driven
+#    - Logs de Lambda filter_inventory → manifest_diff
+#
+# 4. COSTOS:
+#    - Event-driven: Más API calls, mejor RPO
+#    - Manifest diff: Menos API calls, RPO más relajado
+#
+# 5. RECOMENDACIONES POR RPO:
+#    - RPO < 1h:  No recomendado (demasiados incrementales)
+#    - RPO 4-12h: Óptimo para crítico (event-driven)
+#    - RPO 24h:   Óptimo para menos crítico (event-driven o manifest)
+#    - RPO >24h:  Usar manifest diff (más eficiente)
+#
+# ═════════════════════════════════════════════════════════════════════════════

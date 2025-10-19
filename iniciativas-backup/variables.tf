@@ -15,7 +15,7 @@ variable "aws_region" {
 variable "environment" {
   description = "Entorno de despliegue (dev, staging, prod)"
   type        = string
-  
+
   validation {
     condition     = contains(["dev", "staging", "prod"], var.environment)
     error_message = "El ambiente debe ser: dev, staging, o prod."
@@ -32,6 +32,11 @@ variable "iniciativa" {
   type        = string
 }
 
+variable "cuenta" {
+  description = "ID de la cuenta de AWS donde se despliegan los recursos"
+  type        = string
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUCKET CENTRAL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +44,7 @@ variable "iniciativa" {
 variable "central_backup_bucket_name" {
   description = "Nombre COMPLETO del bucket central de backups (debe ser globalmente único)"
   type        = string
-  
+
   validation {
     condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.central_backup_bucket_name))
     error_message = "El nombre del bucket debe cumplir con las reglas de S3: minúsculas, números, guiones, 3-63 caracteres."
@@ -75,7 +80,7 @@ variable "gfs_rules" {
     - grandfather_retention_days: Retención total de Grandfather
     - grandfather_archive_class: Clase de archivo para Grandfather
   EOT
-  
+
   type = map(object({
     enable                     = bool
     start_storage_class        = string
@@ -87,7 +92,7 @@ variable "gfs_rules" {
     grandfather_retention_days = number
     grandfather_archive_class  = string
   }))
-  
+
   validation {
     condition = alltrue([
       for k, v in var.gfs_rules : (
@@ -108,7 +113,7 @@ variable "min_deep_archive_offset_days" {
   description = "Offset mínimo en días entre GLACIER_IR y DEEP_ARCHIVE (requisito de S3)"
   type        = number
   default     = 90
-  
+
   validation {
     condition     = var.min_deep_archive_offset_days >= 90
     error_message = "S3 requiere mínimo 90 días entre GLACIER_IR y DEEP_ARCHIVE."
@@ -129,7 +134,7 @@ variable "object_lock_mode" {
   description = "Modo de Object Lock: COMPLIANCE o GOVERNANCE"
   type        = string
   default     = "COMPLIANCE"
-  
+
   validation {
     condition     = contains(["COMPLIANCE", "GOVERNANCE"], var.object_lock_mode)
     error_message = "El modo debe ser COMPLIANCE o GOVERNANCE."
@@ -227,7 +232,7 @@ variable "lifecycle_rules" {
     incremental_glacier_transition_days = number
     use_glacier_ir                      = bool
   }))
-  
+
   default = {
     Critico      = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 365, incremental_expiration_days = 14, incremental_glacier_transition_days = 0, use_glacier_ir = false }
     MenosCritico = { glacier_transition_days = 0, deep_archive_transition_days = 90, expiration_days = 90, incremental_expiration_days = 7, incremental_glacier_transition_days = 0, use_glacier_ir = false }
