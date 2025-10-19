@@ -34,7 +34,7 @@ def move_manifest_if_needed(
         ETag del manifest en su ubicación final
     """
     if temp_key == final_key:
-        logger.info("ℹ️ Manifest already in final location: s3://%s/%s", 
+        logger.info("Manifest already in final location: s3://%s/%s", 
                    CENTRAL_BUCKET_NAME, final_key)
         head_resp = s3_client.head_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
         return head_resp["ETag"].strip('"')
@@ -47,7 +47,7 @@ def move_manifest_if_needed(
         )
     
     logger.info(
-        "📦 Moving manifest:\n"
+        "   Moving manifest:\n"
         "   From: s3://%s/%s\n"
         "   To:   s3://%s/%s",
         temp_bucket, temp_key,
@@ -75,7 +75,7 @@ def move_manifest_if_needed(
         return final_etag
         
     except Exception as e:
-        logger.error("❌ Failed to move manifest: %s", e, exc_info=True)
+        logger.error("Failed to move manifest: %s", e, exc_info=True)
         # Intentar limpiar copia parcial si existe
         try:
             s3_client.delete_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
@@ -103,7 +103,7 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
     """
     try:
         logger.info("="*80)
-        logger.info("🚀 Iniciando launch_batch_job")
+        logger.info("   Iniciando launch_batch_job")
         logger.info("   Event: %s", json.dumps(event, indent=2))
         logger.info("="*80)
 
@@ -150,7 +150,7 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
         
         final_manifest_key = f"{manifests_prefix}/manifest-{timestamp_suffix}.csv"
 
-        logger.info("📍 Paths configurados:")
+        logger.info("   Paths configurados:")
         logger.info("   Data:      backup/...")
         logger.info("   Manifest:  %s", final_manifest_key)
         logger.info("   Reports:   %s", reports_prefix)
@@ -167,7 +167,7 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
 
         # Submit S3 Batch Operations job
         logger.info("="*80)
-        logger.info("🚀 Submitting S3 Batch Operations job")
+        logger.info("   Submitting S3 Batch Operations job")
         logger.info("   Source bucket:  %s", source_bucket)
         logger.info("   Backup type:    %s", backup_type)
         logger.info("   Generation:     %s", generation)
@@ -214,7 +214,7 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
         job_id = response["JobId"]
         
         logger.info("="*80)
-        logger.info("✅ S3 Batch Job creado exitosamente")
+        logger.info("S3 Batch Job creado exitosamente")
         logger.info("   Job ID: %s", job_id)
         logger.info("   Manifest: s3://%s/%s", CENTRAL_BUCKET_NAME, final_manifest_key)
         logger.info("="*80)
@@ -232,13 +232,13 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
         }
 
     except KeyError as e:
-        logger.error("❌ Missing required field in event: %s", e)
+        logger.error("Missing required field in event: %s", e)
         logger.error("   Event received: %s", json.dumps(event, indent=2))
         raise ValueError(f"Missing required field: {e}")
     
     except Exception as e:
         logger.error("="*80)
-        logger.error("❌ Failed to submit S3 Batch Job")
+        logger.error("Failed to submit S3 Batch Job")
         logger.error("   Error: %s", e)
         logger.error("="*80, exc_info=True)
         raise

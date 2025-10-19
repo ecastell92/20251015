@@ -1,16 +1,3 @@
-"""
-Lambda function: incremental_backup - CORREGIDO
---------------------------------
-Procesa eventos S3 (via SQS) y genera backups incrementales por ventanas de tiempo.
-
-CAMBIOS:
-- MANIFESTS_BUCKET eliminado - usa BACKUP_BUCKET (mismo bucket central)
-- Cifrado unificado a AES256
-- Logs mejorados
-- Mejor manejo de errores
-- ✅ Prefijo con timestamp unificado
-"""
-
 import boto3
 import json
 import os
@@ -29,7 +16,6 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 s3_client = boto3.client("s3")
 s3_control = boto3.client("s3control")
 
-# ✅ Un solo bucket central para todo
 BACKUP_BUCKET = os.environ["BACKUP_BUCKET"]
 BACKUP_BUCKET_ARN = os.environ["BACKUP_BUCKET_ARN"]
 INICIATIVA = os.environ.get("INICIATIVA", "backup")
@@ -42,7 +28,7 @@ BATCH_ROLE_ARN = os.environ["BATCH_ROLE_ARN"]
 try:
     ALLOWED_PREFIXES = json.loads(os.environ.get("ALLOWED_PREFIXES", "{}"))
 except json.JSONDecodeError:
-    logger.warning("⚠️ ALLOWED_PREFIXES inválido, usando vacío")
+    logger.warning("ALLOWED_PREFIXES inválido, usando vacío")
     ALLOWED_PREFIXES = {}
 
 # Frecuencias de ventanas por criticidad
@@ -73,7 +59,7 @@ def get_bucket_criticality(bucket_name: str) -> str:
     except s3_client.exceptions.ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code == "NoSuchTagSet":
-            logger.warning(f"⚠️ Bucket {bucket_name} sin tags, usando MenosCritico")
+            logger.warning(f"Bucket {bucket_name} sin tags, usando MenosCritico")
             criticality = "MenosCritico"
         else:
             raise
@@ -124,15 +110,15 @@ def upload_manifest(
 
     csv_body = "\n".join(f"{source_bucket},{key}" for key in sorted(object_keys))
 
-    logger.info(f"📝 Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
+    logger.info(f"Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
 
-    # ✅ Usar el mismo bucket central con AES256
+    # Usar el mismo bucket central con AES256
     s3_client.put_object(
         Bucket=BACKUP_BUCKET,
         Key=manifest_key,
         Body=csv_body.encode("utf-8"),
         ContentType="text/csv",
-        ServerSideEncryption="AES256",  # ✅ Cifrado unificado
+        ServerSideEncryption="AES256", 
         Metadata={
             "criticality": criticality,
             "object-count": str(len(object_keys)),
@@ -147,9 +133,9 @@ def upload_manifest(
         Bucket=BACKUP_BUCKET, 
         Key=manifest_key
     )["ETag"].strip('"')
-    
-    logger.info(f"✅ Manifiesto creado con {len(object_keys)} objetos")
-    
+
+    logger.info(f"Manifiesto creado con {len(object_keys)} objetos")
+
     return manifest_key, etag, window_label, run_id
 
 
@@ -168,14 +154,14 @@ def submit_batch_job(
 ) -> str:
     """Crea un job de S3 Batch Operations para copiar los objetos."""
     
-    # ✅ CAMBIO: Agregado timestamp al data_prefix
+    #Agregado timestamp al data_prefix
     data_prefix = (
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/"
         f"year={window_start.strftime('%Y')}/month={window_start.strftime('%m')}/"
         f"day={window_start.strftime('%d')}/hour={window_start.strftime('%H')}/"
-        f"timestamp={run_id}"  # ✅ AGREGADO
+        f"timestamp={run_id}" 
     )
 
     # Prefijo de reportes
@@ -185,14 +171,14 @@ def submit_batch_job(
         f"window={window_label}/run={run_id}"
     )
 
-    # ✅ ARN del manifiesto en el bucket central
+    # ARN del manifiesto en el bucket central
     manifest_arn = f"arn:aws:s3:::{BACKUP_BUCKET}/{manifest_key}"
     
     description = (
         f"Incremental backup for {source_bucket} ({criticality}) window {window_label}"
     )
 
-    logger.info(f"🚀 Creando S3 Batch Job:")
+    logger.info(f"   Creando S3 Batch Job:")
     logger.info(f"   Source: {source_bucket}")
     logger.info(f"   Criticality: {criticality}")
     logger.info(f"   Window: {window_label}")
@@ -232,11 +218,11 @@ def submit_batch_job(
         )
 
         job_id = response["JobId"]
-        logger.info(f"✅ S3 Batch Job creado: {job_id}")
+        logger.info(f"S3 Batch Job creado: {job_id}")
         return job_id
     
     except Exception as e:
-        logger.error(f"❌ Error creando Batch Job: {e}", exc_info=True)
+        logger.error(f"Error creando Batch Job: {e}", exc_info=True)
         raise
 
 
@@ -251,7 +237,7 @@ def lambda_handler(event, context):
     """
     records = event.get("Records", [])
     logger.info("="*80)
-    logger.info(f"🎯 Evento recibido con {len(records)} registros SQS")
+    logger.info(f"Evento recibido con {len(records)} registros SQS")
     logger.info("="*80)
 
     # Agrupar objetos por (criticidad, bucket, ventana)
@@ -272,7 +258,7 @@ def lambda_handler(event, context):
                     s3_record["eventTime"].replace("Z", "+00:00")
                 )
 
-                logger.debug(f"📦 Procesando: s3://{bucket_name}/{object_key}")
+                logger.debug(f"Procesando: s3://{bucket_name}/{object_key}")
 
                 # Obtener criticidad del bucket
                 criticality = get_bucket_criticality(bucket_name)
@@ -281,14 +267,14 @@ def lambda_handler(event, context):
                 # Validar si requiere incrementales
                 if not freq_hours:
                     logger.debug(
-                        f"ℹ️ Bucket {bucket_name} ({criticality}) no requiere incrementales"
+                        f"Bucket {bucket_name} ({criticality}) no requiere incrementales"
                     )
                     continue
 
                 # Validar prefijos permitidos
                 if not within_allowed_prefixes(criticality, object_key):
                     logger.debug(
-                        f"⚠️ Objeto fuera de prefijos permitidos: {object_key}"
+                        f"Objeto fuera de prefijos permitidos: {object_key}"
                     )
                     continue
 
@@ -303,11 +289,11 @@ def lambda_handler(event, context):
 
         except Exception as exc:
             processing_failed = True
-            logger.error(f"❌ Error procesando record: {exc}", exc_info=True)
+            logger.error(f"Error procesando record: {exc}", exc_info=True)
 
     # Procesar grupos y crear batch jobs
     jobs_created = []
-    logger.info(f"\n📊 Grupos encontrados: {len(grouped_objects)}")
+    logger.info(f"\n Grupos encontrados: {len(grouped_objects)}")
 
     for group_key, object_keys in grouped_objects.items():
         if not object_keys:
@@ -316,7 +302,7 @@ def lambda_handler(event, context):
         criticality, source_bucket, window_label = group_key
         window_start = window_metadata[group_key]
 
-        logger.info(f"\n🔹 Procesando grupo:")
+        logger.info(f"\n Procesando grupo:")
         logger.info(f"   Bucket: {source_bucket}")
         logger.info(f"   Criticality: {criticality}")
         logger.info(f"   Window: {window_label}")
@@ -350,14 +336,14 @@ def lambda_handler(event, context):
         except Exception as exc:
             processing_failed = True
             logger.error(
-                f"❌ Error creando job para {source_bucket} ventana {window_label}: {exc}",
+                f"Error creando job para {source_bucket} ventana {window_label}: {exc}",
                 exc_info=True
             )
 
     # Error si hubo fallos
     if processing_failed:
         logger.error("="*80)
-        logger.error("❌ Incremental backup tuvo errores")
+        logger.error("Incremental backup tuvo errores")
         logger.error("="*80)
         raise RuntimeError("Incremental backup failed processing one or more records")
 
@@ -365,7 +351,7 @@ def lambda_handler(event, context):
     status = "NO_OBJECTS" if not jobs_created else "BATCH_SUBMITTED"
     
     logger.info("="*80)
-    logger.info(f"✅ Proceso completado: {len(jobs_created)} jobs creados")
+    logger.info(f"Proceso completado: {len(jobs_created)} jobs creados")
     logger.info("="*80)
 
     return {

@@ -1,15 +1,3 @@
-"""
-Lambda function: filter_inventory - CORREGIDO
---------------------------------
-Filtra el inventario de S3 para generar un manifiesto con los objetos que deben
-respaldarse, según criticidad y checkpoint previo.
-
-CAMBIOS:
-- Eliminado código duplicado (utils.py integrado aquí)
-- Cifrado unificado a AES256 (sin KMS)
-- MANIFEST_BUCKET es el mismo que BACKUP_BUCKET
-"""
-
 import boto3
 import os
 import json
@@ -27,7 +15,7 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 s3_client = boto3.client("s3")
 
 # Configuración - Un solo bucket central
-BACKUP_BUCKET = os.environ.get("BACKUP_BUCKET")  # Bucket central único
+BACKUP_BUCKET = os.environ.get("BACKUP_BUCKET")  
 FORCE_FULL_ON_FIRST_RUN = os.environ.get("FORCE_FULL_ON_FIRST_RUN", "false").lower() == "true"
 
 try:
@@ -57,17 +45,17 @@ def read_checkpoint(bucket: str, source_bucket: str, backup_type: str) -> Option
     """Lee la marca de tiempo del último checkpoint desde un archivo en S3."""
     checkpoint_key = f"checkpoints/{source_bucket}/{backup_type}.txt"
     try:
-        logger.info(f"🔎 Leyendo checkpoint desde s3://{bucket}/{checkpoint_key}")
+        logger.info(f"Leyendo checkpoint desde s3://{bucket}/{checkpoint_key}")
         response = s3_client.get_object(Bucket=bucket, Key=checkpoint_key)
         timestamp_str = response["Body"].read().decode("utf-8")
         checkpoint = datetime.fromisoformat(timestamp_str)
-        logger.info(f"✅ Checkpoint encontrado: {checkpoint.isoformat()}")
+        logger.info(f"Checkpoint encontrado: {checkpoint.isoformat()}")
         return checkpoint
     except s3_client.exceptions.NoSuchKey:
-        logger.warning(f"⚠️ No se encontró checkpoint. Primera ejecución o backup completo.")
+        logger.warning(f"No se encontró checkpoint. Primera ejecución o backup completo.")
         return None
     except Exception as e:
-        logger.error(f"❌ Error al leer checkpoint: {e}", exc_info=True)
+        logger.error(f"Error al leer checkpoint: {e}", exc_info=True)
         return None
 
 
@@ -76,16 +64,16 @@ def write_checkpoint(bucket: str, source_bucket: str, backup_type: str, timestam
     checkpoint_key = f"checkpoints/{source_bucket}/{backup_type}.txt"
     timestamp_str = timestamp.isoformat()
     try:
-        logger.info(f"💾 Escribiendo checkpoint: s3://{bucket}/{checkpoint_key} = {timestamp_str}")
+        logger.info(f"Escribiendo checkpoint: s3://{bucket}/{checkpoint_key} = {timestamp_str}")
         s3_client.put_object(
             Bucket=bucket,
             Key=checkpoint_key,
             Body=timestamp_str.encode("utf-8"),
-            ServerSideEncryption="AES256"  # ✅ Cifrado unificado
+            ServerSideEncryption="AES256"  
         )
-        logger.info("✅ Checkpoint guardado correctamente.")
+        logger.info("Checkpoint guardado correctamente.")
     except Exception as e:
-        logger.error(f"❌ Error al escribir checkpoint: {e}", exc_info=True)
+        logger.error(f"Error al escribir checkpoint: {e}", exc_info=True)
 
 
 # ============================================================================
@@ -94,7 +82,7 @@ def write_checkpoint(bucket: str, source_bucket: str, backup_type: str, timestam
 
 def find_latest_inventory_manifest(bucket: str, prefix: str) -> Optional[str]:
     """Busca y devuelve la clave del manifest.json más reciente dentro del prefijo."""
-    logger.info(f"🔍 Buscando manifiesto de inventario en s3://{bucket}/{prefix}")
+    logger.info(f"Buscando manifiesto de inventario en s3://{bucket}/{prefix}")
     if not prefix.endswith("/"):
         prefix += "/"
 
@@ -109,13 +97,13 @@ def find_latest_inventory_manifest(bucket: str, prefix: str) -> Optional[str]:
                         latest_obj = obj
         
         if latest_obj:
-            logger.info(f"✅ Manifiesto encontrado: {latest_obj['Key']}")
+            logger.info(f"Manifiesto encontrado: {latest_obj['Key']}")
             return latest_obj["Key"]
         else:
-            logger.warning(f"⚠️ No se encontró manifest.json en {prefix}")
+            logger.warning(f"No se encontró manifest.json en {prefix}")
             return None
     except Exception as e:
-        logger.error(f"❌ Error al buscar manifiestos: {e}", exc_info=True)
+        logger.error(f"Error al buscar manifiestos: {e}", exc_info=True)
         return None
 
 
@@ -149,13 +137,13 @@ def stream_inventory_to_manifest(
     
     temp_manifest_key = f"manifests/temp/{source_bucket}-{uuid.uuid4()}.csv"
 
-    logger.info(f"📝 Generando manifiesto temporal en s3://{backup_bucket}/{temp_manifest_key}")
+    logger.info(f"Generando manifiesto temporal en s3://{backup_bucket}/{temp_manifest_key}")
 
     # Crear multipart upload con AES256
     mpu = s3_client.create_multipart_upload(
         Bucket=backup_bucket,
         Key=temp_manifest_key,
-        ServerSideEncryption='AES256'  # ✅ Cifrado unificado
+        ServerSideEncryption='AES256' 
     )
 
     upload_id = mpu["UploadId"]
@@ -175,7 +163,7 @@ def stream_inventory_to_manifest(
         for file_info in manifest.get("files", []):
             data_key = file_info.get("key")
             if not data_key:
-                logger.warning("⚠️ Entrada de archivo vacía en manifiesto, saltando...")
+                logger.warning("Entrada de archivo vacía en manifiesto, saltando...")
                 continue
 
             # Limpiar rutas duplicadas
@@ -185,12 +173,12 @@ def stream_inventory_to_manifest(
                 data_key = data_key.replace(duplicate_pattern, correct_segment)
             data_key = data_key.replace('//', '/')
 
-            logger.info(f"📖 Leyendo data file: s3://{backup_bucket}/{data_key}")
+            logger.info(f"Leyendo data file: s3://{backup_bucket}/{data_key}")
 
             try:
                 obj = s3_client.get_object(Bucket=backup_bucket, Key=data_key)
             except s3_client.exceptions.NoSuchKey:
-                logger.warning(f"⚠️ Archivo no encontrado: s3://{backup_bucket}/{data_key}")
+                logger.warning(f"Archivo no encontrado: s3://{backup_bucket}/{data_key}")
                 continue
 
             with gzip.GzipFile(fileobj=obj["Body"]) as gz:
@@ -203,7 +191,7 @@ def stream_inventory_to_manifest(
                     try:
                         last_mod_dt = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
                     except Exception as e:
-                        logger.warning(f"⚠️ Error procesando fecha '{last_modified_str}': {e}")
+                        logger.warning(f"Error procesando fecha '{last_modified_str}': {e}")
                         continue
 
                     # Filtrar por prefijos permitidos
@@ -243,7 +231,7 @@ def stream_inventory_to_manifest(
             parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
 
         if objects_found == 0:
-            logger.info("ℹ️ No se encontraron objetos nuevos. Abortando subida.")
+            logger.info("No se encontraron objetos nuevos. Abortando subida.")
             s3_client.abort_multipart_upload(
                 Bucket=backup_bucket, 
                 Key=temp_manifest_key, 
@@ -259,7 +247,7 @@ def stream_inventory_to_manifest(
             MultipartUpload={"Parts": parts},
         )
 
-        logger.info(f"✅ Manifiesto completado: {objects_found} objetos en s3://{backup_bucket}/{temp_manifest_key}")
+        logger.info(f"Manifiesto completado: {objects_found} objetos en s3://{backup_bucket}/{temp_manifest_key}")
         
         return {
             "bucket": backup_bucket,
@@ -268,7 +256,7 @@ def stream_inventory_to_manifest(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error durante streaming del inventario: {e}", exc_info=True)
+        logger.error(f"Error durante streaming del inventario: {e}", exc_info=True)
         s3_client.abort_multipart_upload(
             Bucket=backup_bucket, 
             Key=temp_manifest_key, 
@@ -293,14 +281,14 @@ def generate_manifest_from_listing(
     Fallback para cuando aún no existe inventario S3.
     """
     
-    logger.warning("⚠️ FALLBACK MODE: Generando manifiesto por listado directo")
+    logger.warning("FALLBACK MODE: Generando manifiesto por listado directo")
     
     temp_manifest_key = f"manifests/temp/{source_bucket}-{uuid.uuid4()}.csv"
 
     mpu = s3_client.create_multipart_upload(
         Bucket=backup_bucket,
         Key=temp_manifest_key,
-        ServerSideEncryption='AES256'  # ✅ Cifrado unificado
+        ServerSideEncryption='AES256'
     )
 
     upload_id = mpu["UploadId"]
@@ -337,13 +325,13 @@ def generate_manifest_from_listing(
 
                     # Límites de seguridad
                     if FALLBACK_MAX_OBJECTS and objects_found >= FALLBACK_MAX_OBJECTS:
-                        logger.warning(f"⚠️ Alcanzado límite de objetos: {FALLBACK_MAX_OBJECTS}")
+                        logger.warning(f"Alcanzado límite de objetos: {FALLBACK_MAX_OBJECTS}")
                         break
                     
                     if FALLBACK_TIME_LIMIT_SECONDS:
                         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                         if elapsed >= FALLBACK_TIME_LIMIT_SECONDS:
-                            logger.warning(f"⚠️ Alcanzado límite de tiempo: {FALLBACK_TIME_LIMIT_SECONDS}s")
+                            logger.warning(f"Alcanzado límite de tiempo: {FALLBACK_TIME_LIMIT_SECONDS}s")
                             break
 
                     # Subir parte cuando se alcanza el tamaño mínimo
@@ -372,7 +360,7 @@ def generate_manifest_from_listing(
             parts.append({"PartNumber": part_number, "ETag": part["ETag"]})
 
         if objects_found == 0:
-            logger.info("ℹ️ Fallback: No se encontraron objetos.")
+            logger.info("Fallback: No se encontraron objetos.")
             s3_client.abort_multipart_upload(
                 Bucket=backup_bucket, 
                 Key=temp_manifest_key, 
@@ -387,7 +375,7 @@ def generate_manifest_from_listing(
             MultipartUpload={"Parts": parts},
         )
 
-        logger.info(f"✅ Fallback completado: {objects_found} objetos en s3://{backup_bucket}/{temp_manifest_key}")
+        logger.info(f"Fallback completado: {objects_found} objetos en s3://{backup_bucket}/{temp_manifest_key}")
         
         return {
             "bucket": backup_bucket,
@@ -396,7 +384,7 @@ def generate_manifest_from_listing(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error durante fallback: {e}", exc_info=True)
+        logger.error(f"Error durante fallback: {e}", exc_info=True)
         s3_client.abort_multipart_upload(
             Bucket=backup_bucket, 
             Key=temp_manifest_key, 
@@ -421,7 +409,7 @@ def lambda_handler(event: Dict, context) -> Dict:
         criticality = event.get("criticality", "MenosCritico")
 
         logger.info("="*80)
-        logger.info(f"🚀 Iniciando filter_inventory")
+        logger.info(f"Iniciando filter_inventory")
         logger.info(f"   Source: {source_bucket}")
         logger.info(f"   Tipo: {backup_type}")
         logger.info(f"   Criticidad: {criticality}")
@@ -436,12 +424,12 @@ def lambda_handler(event: Dict, context) -> Dict:
         # Determinar tipo efectivo de backup
         effective_backup_type = backup_type
         if backup_type == "incremental" and last_cp is None and FORCE_FULL_ON_FIRST_RUN:
-            logger.info("🔄 Primera corrida: forzando FULL backup")
+            logger.info("Primera corrida: forzando FULL backup")
             effective_backup_type = "full"
 
         # Generar manifiesto
         if manifest_key:
-            logger.info("📦 Usando inventario S3 existente")
+            logger.info("Usando inventario S3 existente")
             manifest_obj = s3_client.get_object(Bucket=backup_bucket, Key=manifest_key)
             manifest_data = json.loads(manifest_obj["Body"].read().decode("utf-8"))
             
@@ -454,7 +442,7 @@ def lambda_handler(event: Dict, context) -> Dict:
                 None if effective_backup_type == "full" else last_cp
             )
         else:
-            logger.warning("⚠️ No hay inventario disponible. Usando fallback con ListObjectsV2")
+            logger.warning("No hay inventario disponible. Usando fallback con ListObjectsV2")
             manifest_info = generate_manifest_from_listing(
                 backup_bucket, 
                 source_bucket, 
@@ -464,7 +452,7 @@ def lambda_handler(event: Dict, context) -> Dict:
             )
 
         if not manifest_info:
-            logger.info("ℹ️ No hay objetos nuevos para respaldar.")
+            logger.info("No hay objetos nuevos para respaldar.")
             return {
                 "status": "EMPTY", 
                 "reason": "No new objects",
@@ -476,7 +464,7 @@ def lambda_handler(event: Dict, context) -> Dict:
         write_checkpoint(backup_bucket, source_bucket, checkpoint_type, datetime.now(timezone.utc))
 
         logger.info("="*80)
-        logger.info("✅ Proceso completado exitosamente")
+        logger.info("Proceso completado exitosamente")
         logger.info(f"   Manifiesto: s3://{manifest_info['bucket']}/{manifest_info['key']}")
         logger.info("="*80)
 
@@ -491,7 +479,7 @@ def lambda_handler(event: Dict, context) -> Dict:
 
     except Exception as e:
         logger.error("="*80)
-        logger.error(f"❌ ERROR FATAL en filter_inventory: {e}")
+        logger.error(f"ERROR FATAL en filter_inventory: {e}")
         logger.error("="*80, exc_info=True)
         return {
             "status": "FAILED", 
