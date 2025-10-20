@@ -55,6 +55,7 @@ data "aws_region" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
+  central_account_id = coalesce(var.central_account_id, var.cuenta, data.aws_caller_identity.current.account_id)
 }
 
 // ============================================================================
@@ -103,11 +104,11 @@ module "initiative_logic" {
   source = "./initiative-logic"
 
   # Configuración básica
-  aws_region  = var.aws_region
-  iniciativa  = var.iniciativa
-  environment = var.environment
-  tenant      = var.tenant
-  #central_account_id = local.account_id
+  aws_region         = var.aws_region
+  iniciativa         = var.iniciativa
+  environment        = var.environment
+  tenant             = var.tenant
+  central_account_id = local.central_account_id
 
   # Referencia al bucket central (output del módulo anterior)
   central_backup_bucket_name = module.central_resources.central_backup_bucket_name

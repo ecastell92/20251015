@@ -15,6 +15,11 @@ tenant      = "00"
 iniciativa  = "mvp"
 cuenta      = "905418243844"
 
+# ID de la cuenta CENTRAL donde vive el bucket de backups.
+# Si coincide con la cuenta actual, manténlo igual que "cuenta".
+central_account_id = "905418243844"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUCKET CENTRAL (REQUERIDO)
 # ─────────────────────────────────────────────────────────────────────────────

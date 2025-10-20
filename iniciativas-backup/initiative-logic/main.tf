@@ -484,7 +484,7 @@ resource "aws_lambda_function" "find_resources" {
       LOG_LEVEL             = "INFO"
       SQS_QUEUE_ARN         = aws_sqs_queue.s3_events_queue.arn
       CENTRAL_BACKUP_BUCKET = var.central_backup_bucket_name
-      #CENTRAL_ACCOUNT_ID    = data.aws_caller_identity.current.account_id  
+      CENTRAL_ACCOUNT_ID    = var.central_account_id
     }
   }
 
@@ -538,7 +538,7 @@ resource "aws_lambda_function" "launch_batch_job" {
   environment {
     variables = {
       LOG_LEVEL = "INFO"
-      #ACCOUNT_ID           = data.aws_caller_identity.current.account_id
+      ACCOUNT_ID           = data.aws_caller_identity.current.account_id
       BACKUP_BUCKET_ARN    = local.central_backup_bucket_arn
       BATCH_ROLE_ARN       = aws_iam_role.batch_job_role.arn
       S3_BACKUP_INICIATIVA = var.iniciativa
@@ -577,7 +577,7 @@ resource "aws_lambda_function" "incremental_backup" {
         ALLOWED_PREFIXES       = jsonencode(var.allowed_prefixes)
         CRITICALITY_TAG_KEY    = var.criticality_tag
         GENERATION_INCREMENTAL = "son"
-        #ACCOUNT_ID             = data.aws_caller_identity.current.account_id
+        ACCOUNT_ID             = data.aws_caller_identity.current.account_id
         BATCH_ROLE_ARN = aws_iam_role.batch_job_role.arn
       },
 

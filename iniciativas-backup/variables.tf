@@ -37,6 +37,12 @@ variable "cuenta" {
   type        = string
 }
 
+variable "central_account_id" {
+  description = "ID de la cuenta central donde se encuentra el bucket de backups (si no se especifica, se usa var.cuenta o la cuenta actual)"
+  type        = string
+  default     = null
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUCKET CENTRAL
 # ─────────────────────────────────────────────────────────────────────────────
