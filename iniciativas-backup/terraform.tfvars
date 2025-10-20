@@ -26,7 +26,7 @@ central_account_id = "905418243844"
 
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
 central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
-sufijo_recursos            = "bck-001-aws-notinet"
+sufijo_recursos            = "bck-001-aws"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SCHEDULES POR CRITICIDAD (REQUERIDO)

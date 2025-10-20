@@ -70,6 +70,7 @@ module "central_resources" {
   aws_region  = var.aws_region
   environment = var.environment
   tenant      = var.tenant
+  iniciativa  = var.iniciativa
 
   # Bucket central
   central_backup_bucket_name = var.central_backup_bucket_name

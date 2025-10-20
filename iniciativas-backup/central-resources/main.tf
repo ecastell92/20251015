@@ -1,13 +1,3 @@
-// ============================================================================
-// Central Resources Project - VERSIÓN ECONÓMICA OPTIMIZADA
-// ============================================================================
-// CAMBIOS PARA OPTIMIZACIÓN DE COSTOS:
-// 1. Versionado SUSPENDIDO (ahorro en almacenamiento de versiones)
-// 2. Lifecycle de archivos operacionales: 7 días (vs 21)
-// 3. Reglas GFS con retención mínima
-// 4. Sin Object Lock (simplicidad)
-// ============================================================================
-
 terraform {
   required_providers {
     aws = {
@@ -29,15 +19,16 @@ data "aws_caller_identity" "current" {}
 # ============================================================================
 
 locals {
-  central_backup_bucket_name = var.central_backup_bucket_name
-  central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
   resource_prefix            = "${var.tenant}-${lower(var.environment)}"
+  resource_suffix            = "${var.iniciativa}-${var.sufijo_recursos}"
+  central_backup_bucket_name = "${local.resource_prefix}-central-backup-${local.resource_suffix}-notinet"
+  central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
 
   common_tags = {
     Name        = "central-backup"
     Environment = var.environment
     ManagedBy   = "Terraform"
-    Initiative  = "backup-s3"
+    Initiative  = var.iniciativa
     CostCenter  = "optimized"
   }
 }
@@ -148,11 +139,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       expiration {
         days = rule.value.son_retention_days
       }
-
-      # Limpiar versiones antiguas (si versionado se reactiva)
-      noncurrent_version_expiration {
-        noncurrent_days = 7 # Más agresivo: 7 días vs 30
-      }
     }
   }
 
@@ -187,10 +173,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       # Expiración según retención
       expiration {
         days = rule.value.father_retention_days
-      }
-
-      noncurrent_version_expiration {
-        noncurrent_days = 7
       }
     }
   }
@@ -227,10 +209,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       expiration {
         days = rule.value.grandfather_retention_days
       }
-
-      noncurrent_version_expiration {
-        noncurrent_days = 7
-      }
     }
   }
 
@@ -250,10 +228,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     expiration {
       days = 7 # CAMBIADO: de 21 a 7 días
     }
-
-    noncurrent_version_expiration {
-      noncurrent_days = 1
-    }
   }
 
   # Reportes de S3 Batch - OPTIMIZADO: 7 días
@@ -267,10 +241,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
 
     expiration {
       days = 7 # CAMBIADO: de 21 a 7 días
-    }
-
-    noncurrent_version_expiration {
-      noncurrent_days = 1
     }
   }
 
@@ -286,10 +256,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     expiration {
       days = 7 # CAMBIADO: de 21 a 7 días
     }
-
-    noncurrent_version_expiration {
-      noncurrent_days = 1
-    }
   }
 
   # Manifiestos temporales - OPTIMIZADO: 7 días
@@ -303,10 +269,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
 
     expiration {
       days = 7 # CAMBIADO: de 21 a 7 días
-    }
-
-    noncurrent_version_expiration {
-      noncurrent_days = 1
     }
   }
 

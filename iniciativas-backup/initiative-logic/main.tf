@@ -34,11 +34,20 @@ locals {
   central_backup_bucket_arn = "arn:aws:s3:::${var.central_backup_bucket_name}"
 
   # Extraer frecuencias en horas desde schedule_expressions
-  # Formato: "rate(12 hours)" -> 12
+  # Admite formatos con espacios/mayúsculas y también "days" → horas
+  # Ejemplos:
+  #   rate(12 hours)  => 12
+  #   rate( 24 HOURS ) => 24
+  #   rate(2 days)    => 48
   backup_frequencies = {
-    for k, v in var.schedule_expressions : k => try(
-      tonumber(regex("rate\\((\\d+) hours?\\)", v.incremental)[0]),
-      0 # 0 = sin incrementales
+    for k, v in var.schedule_expressions : k => (
+      v.incremental == null || trimspace(v.incremental) == "" ? 0 : (
+        can(regex("(?i)^rate\\(\\s*(\\d+)\\s*hours?\\s*\\)$", trimspace(v.incremental))) ?
+          tonumber(regex("(?i)^rate\\(\\s*(\\d+)\\s*hours?\\s*\\)$", trimspace(v.incremental))[0]) : (
+        can(regex("(?i)^rate\\(\\s*(\\d+)\\s*days?\\s*\\)$", trimspace(v.incremental))) ?
+          tonumber(regex("(?i)^rate\\(\\s*(\\d+)\\s*days?\\s*\\)$", trimspace(v.incremental))[0]) * 24 : 0
+        )
+      )
     )
   }
 }
@@ -431,8 +440,15 @@ resource "aws_iam_role_policy" "launch_batch_job" {
 // SQS Queue for S3 events
 resource "aws_sqs_queue" "s3_events_queue" {
   name                       = "${local.prefijo_recursos}-s3-events-${local.sufijo_recursos}"
-  visibility_timeout_seconds = 120
+  visibility_timeout_seconds = 900
   receive_wait_time_seconds  = 10
+
+  # Dead Letter Queue configuration
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.s3_events_dlq.arn
+    maxReceiveCount     = 3
+  })
+
   tags = {
     Initiative  = var.iniciativa
     Environment = var.environment
@@ -597,8 +613,171 @@ resource "aws_lambda_function" "incremental_backup" {
 resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn                   = aws_sqs_queue.s3_events_queue.arn
   function_name                      = aws_lambda_function.incremental_backup.function_name
-  batch_size                         = 10
-  maximum_batching_window_in_seconds = 20
+
+  # Optimized batching
+  batch_size                         = 1000
+  maximum_batching_window_in_seconds = 300
+
+  # Report per-item failures back to SQS for retries
+  function_response_types            = ["ReportBatchItemFailures"]
+
+  # Control concurrency for event source mapping
+  scaling_config {
+    maximum_concurrency = 10
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Dead Letter Queue for failed S3 event messages
+resource "aws_sqs_queue" "s3_events_dlq" {
+  name                      = "${local.prefijo_recursos}-s3-events-dlq-${local.sufijo_recursos}"
+  message_retention_seconds = 1209600 # 14 days
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    Purpose     = "Dead Letter Queue para eventos S3 fallidos"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// CloudWatch Log Groups with retention for each Lambda
+resource "aws_cloudwatch_log_group" "find_resources" {
+  name              = "/aws/lambda/${aws_lambda_function.find_resources.function_name}"
+  retention_in_days = 7
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    CostCenter  = "optimized"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "filter_inventory" {
+  name              = "/aws/lambda/${aws_lambda_function.filter_inventory.function_name}"
+  retention_in_days = 7
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    CostCenter  = "optimized"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "launch_batch_job" {
+  name              = "/aws/lambda/${aws_lambda_function.launch_batch_job.function_name}"
+  retention_in_days = 7
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    CostCenter  = "optimized"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "incremental_backup" {
+  name              = "/aws/lambda/${aws_lambda_function.incremental_backup.function_name}"
+  retention_in_days = 7
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    CostCenter  = "optimized"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "backup_configurations" {
+  name              = "/aws/lambda/${aws_lambda_function.backup_configurations.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+    CostCenter  = "optimized"
+  }
+}
+
+// -----------------------------------------------------------------------------
+// SNS Topic and alarms for failures
+resource "aws_sns_topic" "backup_alerts" {
+  name = "${local.prefijo_recursos}-backup-alerts-${local.sufijo_recursos}"
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_sns_topic_subscription" "backup_alerts_email" {
+  topic_arn = aws_sns_topic.backup_alerts.arn
+  protocol  = "email"
+  endpoint  = "tu-email@example.com"
+}
+
+resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
+  alarm_name          = "${local.prefijo_recursos}-dlq-has-messages"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 0
+  alarm_description   = "Dead Letter Queue tiene mensajes fallidos"
+  alarm_actions       = [aws_sns_topic.backup_alerts.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.s3_events_dlq.name
+  }
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "incremental_backup_errors" {
+  alarm_name          = "${local.prefijo_recursos}-incremental-backup-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 5
+  alarm_description   = "Lambda incremental_backup tiene más de 5 errores en 5 minutos"
+  alarm_actions       = [aws_sns_topic.backup_alerts.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.incremental_backup.function_name
+  }
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "step_function_failures" {
+  alarm_name          = "${local.prefijo_recursos}-backup-step-function-failures"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ExecutionsFailed"
+  namespace           = "AWS/States"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Step Function de backup ha fallado"
+  alarm_actions       = [aws_sns_topic.backup_alerts.arn]
+
+  dimensions = {
+    StateMachineArn = aws_sfn_state_machine.backup_orchestrator.arn
+  }
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
 }
 
 // -----------------------------------------------------------------------------

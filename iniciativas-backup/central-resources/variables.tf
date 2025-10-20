@@ -26,6 +26,11 @@ variable "tenant" {
   type        = string
 }
 
+variable "iniciativa" {
+  description = "Nombre de la Iniciativa"
+  type        = string
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BUCKET CENTRAL - NOMENCLATURA UNIFICADA
 # ─────────────────────────────────────────────────────────────────────────────

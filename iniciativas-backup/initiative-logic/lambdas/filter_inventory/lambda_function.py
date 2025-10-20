@@ -38,6 +38,12 @@ except json.JSONDecodeError:
 MIN_CHUNK_SIZE_BYTES = 6 * 1024 * 1024
 
 # ============================================================================
+# OPTIMIZACIÓN: Validación de edad de inventory
+# ============================================================================
+MAX_INVENTORY_AGE_DAYS = 10  # Advertir si inventory tiene más de 10 días
+
+
+# ============================================================================
 # CHECKPOINT MANAGEMENT - Implementación única
 # ============================================================================
 
@@ -77,11 +83,14 @@ def write_checkpoint(bucket: str, source_bucket: str, backup_type: str, timestam
 
 
 # ============================================================================
-# INVENTORY MANIFEST DISCOVERY
+# INVENTORY MANIFEST DISCOVERY - MEJORADO CON VALIDACIÓN DE EDAD
 # ============================================================================
 
 def find_latest_inventory_manifest(bucket: str, prefix: str) -> Optional[str]:
-    """Busca y devuelve la clave del manifest.json más reciente dentro del prefijo."""
+    """
+    Busca y devuelve la clave del manifest.json más reciente dentro del prefijo.
+    NUEVO: Valida la edad del inventory y advierte si está muy desactualizado.
+    """
     logger.info(f"Buscando manifiesto de inventario en s3://{bucket}/{prefix}")
     if not prefix.endswith("/"):
         prefix += "/"
@@ -97,7 +106,24 @@ def find_latest_inventory_manifest(bucket: str, prefix: str) -> Optional[str]:
                         latest_obj = obj
         
         if latest_obj:
-            logger.info(f"Manifiesto encontrado: {latest_obj['Key']}")
+            #NUEVO: Validar edad del inventory
+            age_days = (datetime.now(timezone.utc) - latest_obj["LastModified"]).days
+            age_hours = (datetime.now(timezone.utc) - latest_obj["LastModified"]).seconds // 3600
+            
+            logger.info(f"Inventory encontrado: {latest_obj['Key']}")
+            logger.info(f"Edad: {age_days} días, {age_hours} horas")
+            
+            if age_days > MAX_INVENTORY_AGE_DAYS:
+                logger.warning(
+                    f"ADVERTENCIA: Inventory muy antiguo ({age_days} días). "
+                    f"Puede estar desactualizado para full backup. "
+                    f"Verificar que S3 Inventory esté generándose correctamente."
+                )
+            elif age_days > 7:
+                logger.info(f"Inventory de hace {age_days} días (aceptable para Weekly)")
+            else:
+                logger.info(f"Inventory reciente ({age_days} días)")
+            
             return latest_obj["Key"]
         else:
             logger.warning(f"No se encontró manifest.json en {prefix}")
@@ -266,7 +292,7 @@ def stream_inventory_to_manifest(
 
 
 # ============================================================================
-# FALLBACK: MANIFEST FROM DIRECT LISTING
+# FALLBACK: MANIFEST FROM DIRECT LISTING - MEJORADO
 # ============================================================================
 
 def generate_manifest_from_listing(
@@ -279,9 +305,13 @@ def generate_manifest_from_listing(
     """
     Genera un manifiesto CSV recorriendo objetos del bucket origen usando ListObjectsV2.
     Fallback para cuando aún no existe inventario S3.
+    
+    IMPORTANTE: Solo debería usarse en la PRIMERA corrida. Después de eso, si no hay
+    inventory disponible, el proceso debería fallar para evitar costes de ListObjectsV2.
     """
     
     logger.warning("FALLBACK MODE: Generando manifiesto por listado directo")
+    logger.warning("    Nota: Este método es costoso y solo debería usarse en primera corrida")
     
     temp_manifest_key = f"manifests/temp/{source_bucket}-{uuid.uuid4()}.csv"
 
@@ -394,12 +424,13 @@ def generate_manifest_from_listing(
 
 
 # ============================================================================
-# LAMBDA HANDLER
+# LAMBDA HANDLER - MEJORADO CON VALIDACIÓN
 # ============================================================================
 
 def lambda_handler(event: Dict, context) -> Dict:
     """
     Handler principal para filtrar inventario y generar manifiestos.
+    MEJORADO: Valida edad de inventory y evita fallback innecesario.
     """
     try:
         backup_bucket = event["backup_bucket"]
@@ -415,7 +446,7 @@ def lambda_handler(event: Dict, context) -> Dict:
         logger.info(f"   Criticidad: {criticality}")
         logger.info("="*80)
 
-        # Buscar inventario existente
+        # Buscar inventario existente (CON VALIDACIÓN DE EDAD)
         manifest_key = find_latest_inventory_manifest(backup_bucket, inventory_prefix)
         
         # Leer checkpoint
@@ -426,6 +457,20 @@ def lambda_handler(event: Dict, context) -> Dict:
         if backup_type == "incremental" and last_cp is None and FORCE_FULL_ON_FIRST_RUN:
             logger.info("Primera corrida: forzando FULL backup")
             effective_backup_type = "full"
+
+        # Si es incremental, no hay checkpoint y NO queremos forzar full:
+        # sembrar checkpoint y salir sin copiar todo (evita 'full' involuntario)
+        if backup_type == "incremental" and last_cp is None and not FORCE_FULL_ON_FIRST_RUN:
+            now = datetime.now(timezone.utc)
+            write_checkpoint(backup_bucket, source_bucket, "incremental", now)
+            logger.info(
+                "Primera corrida incremental sin checkpoint: se siembra checkpoint y no se copia contenido."
+            )
+            return {
+                "status": "EMPTY",
+                "reason": "First incremental run seeded checkpoint without full copy",
+                "source_bucket": source_bucket,
+            }
 
         # Generar manifiesto
         if manifest_key:
@@ -442,14 +487,32 @@ def lambda_handler(event: Dict, context) -> Dict:
                 None if effective_backup_type == "full" else last_cp
             )
         else:
-            logger.warning("No hay inventario disponible. Usando fallback con ListObjectsV2")
-            manifest_info = generate_manifest_from_listing(
-                backup_bucket, 
-                source_bucket, 
-                effective_backup_type, 
-                criticality, 
-                None if effective_backup_type == "full" else last_cp
-            )
+            #Validar si es realmente primera corrida
+            if last_cp is None:
+                logger.warning(
+                    "No hay inventario disponible pero es PRIMERA CORRIDA. "
+                    "Usando fallback con ListObjectsV2."
+                )
+                manifest_info = generate_manifest_from_listing(
+                    backup_bucket, 
+                    source_bucket, 
+                    effective_backup_type, 
+                    criticality, 
+                    None if effective_backup_type == "full" else last_cp
+                )
+            else:
+                # NO es primera corrida y no hay inventory: usar fallback acotado por checkpoint
+                logger.warning(
+                    "Inventory no disponible y NO es primera corrida. "
+                    "Usando fallback con ListObjectsV2 limitado por checkpoint."
+                )
+                manifest_info = generate_manifest_from_listing(
+                    backup_bucket,
+                    source_bucket,
+                    effective_backup_type,
+                    criticality,
+                    last_cp
+                )
 
         if not manifest_info:
             logger.info("No hay objetos nuevos para respaldar.")

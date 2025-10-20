@@ -1,10 +1,3 @@
-// -----------------------------------------------------------------------------
-// Variables for the initiative logic project
-//
-// Each initiative deploys its own copy of this module into its account. These
-// variables configure the initiative name, environment, and references to
-// central resources such as the backup bucket and KMS key.
-
 variable "aws_region" {
   description = "The AWS region for this initiative"
   type        = string
@@ -16,7 +9,7 @@ variable "iniciativa" {
 }
 
 variable "environment" {
-  description = "Deployment environment tag (e.g., dev, prod)"
+  description = "Deployment environment tag (e.g., DEV, PRO)"
   type        = string
 }
 
