@@ -43,13 +43,16 @@ locals {
     for k, v in var.schedule_expressions : k => (
       v.incremental == null || trimspace(v.incremental) == "" ? 0 : (
         can(regex("(?i)^rate\\(\\s*(\\d+)\\s*hours?\\s*\\)$", trimspace(v.incremental))) ?
-          tonumber(regex("(?i)^rate\\(\\s*(\\d+)\\s*hours?\\s*\\)$", trimspace(v.incremental))[0]) : (
-        can(regex("(?i)^rate\\(\\s*(\\d+)\\s*days?\\s*\\)$", trimspace(v.incremental))) ?
+        tonumber(regex("(?i)^rate\\(\\s*(\\d+)\\s*hours?\\s*\\)$", trimspace(v.incremental))[0]) : (
+          can(regex("(?i)^rate\\(\\s*(\\d+)\\s*days?\\s*\\)$", trimspace(v.incremental))) ?
           tonumber(regex("(?i)^rate\\(\\s*(\\d+)\\s*days?\\s*\\)$", trimspace(v.incremental))[0]) * 24 : 0
         )
       )
     )
   }
+
+  # Hora para ejecución única de la lambda de configuración (~5 minutos después de apply)
+  backup_configurations_once_time = formatdate("YYYY-MM-DD'T'HH:mm:ss", timeadd(timestamp(), "5m"))
 }
 
 // -----------------------------------------------------------------------------
@@ -553,7 +556,7 @@ resource "aws_lambda_function" "launch_batch_job" {
 
   environment {
     variables = {
-      LOG_LEVEL = "INFO"
+      LOG_LEVEL            = "INFO"
       ACCOUNT_ID           = data.aws_caller_identity.current.account_id
       BACKUP_BUCKET_ARN    = local.central_backup_bucket_arn
       BATCH_ROLE_ARN       = aws_iam_role.batch_job_role.arn
@@ -594,7 +597,7 @@ resource "aws_lambda_function" "incremental_backup" {
         CRITICALITY_TAG_KEY    = var.criticality_tag
         GENERATION_INCREMENTAL = "son"
         ACCOUNT_ID             = data.aws_caller_identity.current.account_id
-        BATCH_ROLE_ARN = aws_iam_role.batch_job_role.arn
+        BATCH_ROLE_ARN         = aws_iam_role.batch_job_role.arn
       },
 
       {
@@ -611,15 +614,15 @@ resource "aws_lambda_function" "incremental_backup" {
 }
 
 resource "aws_lambda_event_source_mapping" "sqs_event" {
-  event_source_arn                   = aws_sqs_queue.s3_events_queue.arn
-  function_name                      = aws_lambda_function.incremental_backup.function_name
+  event_source_arn = aws_sqs_queue.s3_events_queue.arn
+  function_name    = aws_lambda_function.incremental_backup.function_name
 
   # Optimized batching
   batch_size                         = 1000
   maximum_batching_window_in_seconds = 300
 
   # Report per-item failures back to SQS for retries
-  function_response_types            = ["ReportBatchItemFailures"]
+  function_response_types = ["ReportBatchItemFailures"]
 
   # Control concurrency for event source mapping
   scaling_config {
@@ -952,6 +955,12 @@ resource "aws_iam_role_policy" "scheduler_policy" {
         Resource = aws_sfn_state_machine.backup_orchestrator.arn
       },
       {
+        Sid      = "AllowInvokeBackupConfigurationsLambda",
+        Effect   = "Allow",
+        Action   = ["lambda:InvokeFunction"],
+        Resource = aws_lambda_function.backup_configurations.arn
+      },
+      {
         Sid      = "AllowPassRoleToSFN",
         Effect   = "Allow",
         Action   = ["iam:PassRole"],
@@ -1082,9 +1091,19 @@ resource "aws_iam_role_policy" "backup_configurations" {
           "s3:GetBucketVersioning",
           "s3:ListBucketInventoryConfigurations",
           "s3:GetBucketNotificationConfiguration",
+          "s3:GetBucketNotification",
           "s3:GetBucketCors",
           "s3:GetReplicationConfiguration",
           "s3:ListBucket"
+        ],
+        Resource = "arn:aws:s3:::*"
+      },
+      {
+        Sid    = "AllowS3PutBucketNotifications",
+        Effect = "Allow",
+        Action = [
+          "s3:PutBucketNotificationConfiguration",
+          "s3:PutBucketNotification"
         ],
         Resource = "arn:aws:s3:::*"
       },
@@ -1243,29 +1262,39 @@ resource "aws_lambda_function" "backup_configurations" {
   }
 }
 
-resource "aws_cloudwatch_event_rule" "backup_configurations_weekly" {
-  name                = "${local.prefijo_recursos}-backup-configs-weekly-${local.sufijo_recursos}"
-  description         = "Trigger weekly backup of AWS configurations"
+resource "aws_scheduler_schedule" "backup_configurations_weekly" {
+  name        = "${local.prefijo_recursos}-backup-configs-weekly-${local.sufijo_recursos}"
+  group_name  = aws_scheduler_schedule_group.backup_schedules.name
+  description = "Trigger weekly backup of AWS configurations"
+
+  flexible_time_window { mode = "OFF" }
   schedule_expression = "cron(0 2 ? * SUN *)"
 
-  tags = {
-    Initiative  = var.iniciativa
-    Environment = var.environment
+  target {
+    arn      = aws_lambda_function.backup_configurations.arn
+    role_arn = aws_iam_role.scheduler_execution_role.arn
+    input    = jsonencode({ action = "run" })
   }
 }
 
-resource "aws_cloudwatch_event_target" "backup_configurations_weekly" {
-  rule      = aws_cloudwatch_event_rule.backup_configurations_weekly.name
-  target_id = "BackupConfigurationsLambda"
-  arn       = aws_lambda_function.backup_configurations.arn
-}
+resource "aws_scheduler_schedule" "backup_configurations_once" {
+  name        = "${local.prefijo_recursos}-backup-configs-once-${local.sufijo_recursos}"
+  group_name  = aws_scheduler_schedule_group.backup_schedules.name
+  description = "One-shot run after deploy for backup configurations"
 
-resource "aws_lambda_permission" "allow_eventbridge_backup_configurations" {
-  statement_id  = "AllowExecutionFromEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.backup_configurations.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.backup_configurations_weekly.arn
+  flexible_time_window { mode = "OFF" }
+  schedule_expression = "at(${local.backup_configurations_once_time})"
+
+  target {
+    arn      = aws_lambda_function.backup_configurations.arn
+    role_arn = aws_iam_role.scheduler_execution_role.arn
+    input    = jsonencode({ action = "run-once" })
+  }
+
+  lifecycle {
+    # Evitar drift por cambio de timestamp en futuros plans
+    ignore_changes = [schedule_expression]
+  }
 }
 
 output "backup_configurations_lambda_arn" {

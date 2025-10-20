@@ -365,10 +365,14 @@ def backup_athena_configurations() -> Dict[str, Any]:
     }
     
     try:
-        # Workgroups
-        paginator = athena_client.get_paginator("list_work_groups")
-        for page in paginator.paginate():
-            for wg in page.get("WorkGroups", []):
+        # Workgroups (no paginator disponible en algunas versiones)
+        next_token = None
+        while True:
+            if next_token:
+                resp = athena_client.list_work_groups(NextToken=next_token)
+            else:
+                resp = athena_client.list_work_groups()
+            for wg in resp.get("WorkGroups", []):
                 wg_name = wg["Name"]
                 
                 # Obtener configuración detallada del workgroup
@@ -391,7 +395,10 @@ def backup_athena_configurations() -> Dict[str, Any]:
                     })
                 except Exception as e:
                     logger.warning(f"Error obteniendo detalles del workgroup {wg_name}: {e}")
-        
+            next_token = resp.get("NextToken")
+            if not next_token:
+                break
+
         logger.info(f"Exportados {len(athena_config['workgroups'])} workgroups")
         
         # Data Catalogs
