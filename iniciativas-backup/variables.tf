@@ -105,20 +105,7 @@ variable "gfs_rules" {
   }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# VALIDACIONES S3
-# ─────────────────────────────────────────────────────────────────────────────
 
-variable "min_deep_archive_offset_days" {
-  description = "Offset mínimo en días entre GLACIER_IR y DEEP_ARCHIVE (requisito de S3)"
-  type        = number
-  default     = 90
-
-  validation {
-    condition     = var.min_deep_archive_offset_days >= 90
-    error_message = "S3 requiere mínimo 90 días entre GLACIER_IR y DEEP_ARCHIVE."
-  }
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SEGURIDAD (Opcional)

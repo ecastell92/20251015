@@ -1,9 +1,10 @@
 // ============================================================================
-// Initiative Logic Project
-//
-// Deploys logic required to protect S3 buckets in an initiative account.
-// Creates SQS queues, Lambda functions, IAM roles and policies, a Step Function
-// state machine and EventBridge Scheduler to orchestrate backups.
+// Initiative Logic Project - CORREGIDO
+// ============================================================================
+// CAMBIOS:
+// 1. CENTRAL_ACCOUNT_ID habilitada en find_resources
+// 2. Variables de frecuencia para incremental_backup
+// 3. Frecuencias extraídas desde schedule_expressions
 // ============================================================================
 
 terraform {
@@ -31,6 +32,15 @@ locals {
   sufijo_recursos  = "${lower(var.iniciativa)}-${var.sufijo_recursos}"
 
   central_backup_bucket_arn = "arn:aws:s3:::${var.central_backup_bucket_name}"
+
+  # Extraer frecuencias en horas desde schedule_expressions
+  # Formato: "rate(12 hours)" -> 12
+  backup_frequencies = {
+    for k, v in var.schedule_expressions : k => try(
+      tonumber(regex("rate\\((\\d+) hours?\\)", v.incremental)[0]),
+      0 # 0 = sin incrementales
+    )
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -61,7 +71,6 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
         Action   = ["s3:GetBucketTagging"],
         Resource = "arn:aws:s3:::*"
       },
-      # Permisos para copias directas: leer objetos de origen y escribir en bucket central
       {
         Sid    = "AllowReadSourceObjects",
         Effect = "Allow",
@@ -95,7 +104,6 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
         Resource = aws_sqs_queue.s3_events_queue.arn
       },
-      # Permiso para escribir los manifiestos
       {
         Effect = "Allow"
         Action = [
@@ -133,7 +141,7 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
 }
 
 // -----------------------------------------------------------------------------
-// Find Resources Lambda (crea inventarios en los buckets origen)
+// Find Resources Lambda
 resource "aws_iam_role" "find_resources" {
   name = "${local.prefijo_recursos}-iam-role-find-resources-${local.sufijo_recursos}"
 
@@ -159,21 +167,18 @@ resource "aws_iam_role_policy" "find_resources" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      # Permite listar buckets con etiquetas
       {
         Sid      = "AllowTaggingAPI",
         Effect   = "Allow",
         Action   = ["tag:GetResources"],
         Resource = "*"
       },
-      # Leer tags de buckets S3 (necesario para determinar criticidad)
       {
         Sid      = "AllowReadBucketTags",
         Effect   = "Allow",
         Action   = ["s3:GetBucketTagging"],
         Resource = "arn:aws:s3:::*"
       },
-      # Permisos sobre S3 buckets origen para configurar inventario y notificaciones
       {
         Sid    = "AllowS3InventoryAndNotifications",
         Effect = "Allow",
@@ -185,11 +190,11 @@ resource "aws_iam_role_policy" "find_resources" {
           "s3:GetBucketInventoryConfiguration",
           "s3:PutBucketInventoryConfiguration",
           "s3:GetInventoryConfiguration",
-          "s3:PutInventoryConfiguration"
+          "s3:PutInventoryConfiguration",
+          "s3:DeleteBucketInventoryConfiguration"
         ],
         Resource = "arn:aws:s3:::*"
       },
-      # Permisos para leer y actualizar policy de buckets origen (necesario para inventory)
       {
         Sid    = "AllowSourceBucketPolicyManagement",
         Effect = "Allow",
@@ -199,7 +204,6 @@ resource "aws_iam_role_policy" "find_resources" {
         ],
         Resource = "arn:aws:s3:::*"
       },
-      # Permitir leer y actualizar la policy del bucket central
       {
         Sid    = "AllowCentralBucketPolicyUpdate",
         Effect = "Allow",
@@ -212,7 +216,6 @@ resource "aws_iam_role_policy" "find_resources" {
           "arn:aws:s3:::${var.central_backup_bucket_name}/*"
         ]
       },
-      # Permisos de lectura/escritura de inventarios al bucket central
       {
         Sid    = "AllowWriteInventoryToCentral",
         Effect = "Allow",
@@ -222,7 +225,6 @@ resource "aws_iam_role_policy" "find_resources" {
           "arn:aws:s3:::${var.central_backup_bucket_name}/*"
         ]
       },
-      # Logs
       {
         Sid    = "AllowLogging",
         Effect = "Allow",
@@ -233,7 +235,6 @@ resource "aws_iam_role_policy" "find_resources" {
         ],
         Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
       },
-      # Identidad de la cuenta
       {
         Sid      = "AllowSTS",
         Effect   = "Allow",
@@ -298,7 +299,7 @@ resource "aws_iam_role_policy_attachment" "filter_inventory_lambda_policy_attach
 }
 
 // -----------------------------------------------------------------------------
-// Batch Job ROLE (usado por S3 Batch Operations)
+// Batch Job ROLE
 resource "aws_iam_role" "batch_job_role" {
   name = "${local.prefijo_recursos}-iam-role-batch-job-${local.sufijo_recursos}"
 
@@ -483,7 +484,7 @@ resource "aws_lambda_function" "find_resources" {
       LOG_LEVEL             = "INFO"
       SQS_QUEUE_ARN         = aws_sqs_queue.s3_events_queue.arn
       CENTRAL_BACKUP_BUCKET = var.central_backup_bucket_name
-      #CENTRAL_ACCOUNT_ID    = var.central_account_id
+      #CENTRAL_ACCOUNT_ID    = data.aws_caller_identity.current.account_id  
     }
   }
 
@@ -536,8 +537,8 @@ resource "aws_lambda_function" "launch_batch_job" {
 
   environment {
     variables = {
-      LOG_LEVEL            = "INFO"
-      ACCOUNT_ID           = data.aws_caller_identity.current.account_id
+      LOG_LEVEL = "INFO"
+      #ACCOUNT_ID           = data.aws_caller_identity.current.account_id
       BACKUP_BUCKET_ARN    = local.central_backup_bucket_arn
       BATCH_ROLE_ARN       = aws_iam_role.batch_job_role.arn
       S3_BACKUP_INICIATIVA = var.iniciativa
@@ -567,17 +568,24 @@ resource "aws_lambda_function" "incremental_backup" {
   timeout          = 120
 
   environment {
-    variables = {
-      LOG_LEVEL              = "INFO"
-      BACKUP_BUCKET          = var.central_backup_bucket_name
-      BACKUP_BUCKET_ARN      = local.central_backup_bucket_arn
-      INICIATIVA             = var.iniciativa
-      ALLOWED_PREFIXES       = jsonencode(var.allowed_prefixes)
-      CRITICALITY_TAG_KEY    = var.criticality_tag
-      GENERATION_INCREMENTAL = "son"
-      ACCOUNT_ID             = data.aws_caller_identity.current.account_id
-      BATCH_ROLE_ARN         = aws_iam_role.batch_job_role.arn
-    }
+    variables = merge(
+      {
+        LOG_LEVEL              = "INFO"
+        BACKUP_BUCKET          = var.central_backup_bucket_name
+        BACKUP_BUCKET_ARN      = local.central_backup_bucket_arn
+        INICIATIVA             = var.iniciativa
+        ALLOWED_PREFIXES       = jsonencode(var.allowed_prefixes)
+        CRITICALITY_TAG_KEY    = var.criticality_tag
+        GENERATION_INCREMENTAL = "son"
+        #ACCOUNT_ID             = data.aws_caller_identity.current.account_id
+        BATCH_ROLE_ARN = aws_iam_role.batch_job_role.arn
+      },
+
+      {
+        for criticality, freq_hours in local.backup_frequencies :
+        "BACKUP_FREQUENCY_HOURS_${upper(criticality)}" => tostring(freq_hours)
+      }
+    )
   }
 
   tags = {
@@ -585,7 +593,6 @@ resource "aws_lambda_function" "incremental_backup" {
     Environment = var.environment
   }
 }
-
 
 resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn                   = aws_sqs_queue.s3_events_queue.arn
@@ -724,8 +731,7 @@ resource "aws_sfn_state_machine" "backup_orchestrator" {
 }
 
 // -----------------------------------------------------------------------------
-// EventBridge Scheduler para SWEEP programado según criticidad
-// -----------------------------------------------------------------------------
+// EventBridge Scheduler
 resource "aws_scheduler_schedule_group" "backup_schedules" {
   name = "${local.prefijo_recursos}-schedules-${local.sufijo_recursos}"
 
@@ -777,7 +783,6 @@ resource "aws_iam_role_policy" "scheduler_policy" {
 }
 
 resource "aws_scheduler_schedule" "incremental_schedules" {
-  # Solo crear schedules incrementales cuando se haya definido 'incremental'
   for_each = { for k, v in var.schedule_expressions : k => v if try(v.incremental, null) != null && trimspace(v.incremental) != "" }
 
   name        = "${local.prefijo_recursos}-inc-${lower(each.key)}-${local.sufijo_recursos}"
@@ -826,7 +831,6 @@ resource "aws_scheduler_schedule" "sweep_schedules" {
 }
 
 resource "aws_scheduler_schedule" "grandfather_schedules" {
-  # Solo crear schedules de grandfather cuando se haya definido
   for_each = { for k, v in var.schedule_expressions : k => v if try(v.grandfather, null) != null && trimspace(v.grandfather) != "" }
 
   name        = "${local.prefijo_recursos}-grandfather-${lower(each.key)}-${local.sufijo_recursos}"
@@ -850,14 +854,10 @@ resource "aws_scheduler_schedule" "grandfather_schedules" {
   }
 }
 
+// ============================================================================
+// Backup de Configuraciones AWS
+// ============================================================================
 
-
-
-# ============================================================================
-# Backup de Configuraciones AWS
-# ============================================================================
-
-# Lambda Role
 resource "aws_iam_role" "backup_configurations" {
   name = "${local.prefijo_recursos}-iam-role-backup-configs-${local.sufijo_recursos}"
 
@@ -876,7 +876,6 @@ resource "aws_iam_role" "backup_configurations" {
   }
 }
 
-# Lambda Policy
 resource "aws_iam_role_policy" "backup_configurations" {
   name = "${local.prefijo_recursos}-iam-policy-backup-configs-${local.sufijo_recursos}"
   role = aws_iam_role.backup_configurations.name
@@ -884,7 +883,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      # S3 - Write configurations
       {
         Sid    = "AllowS3WriteConfigurations",
         Effect = "Allow",
@@ -894,7 +892,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "${local.central_backup_bucket_arn}/backup/criticality=Critico/backup_type=configurations/*"
       },
-      # S3 - Read all bucket configurations
       {
         Sid    = "AllowS3ReadBucketConfigurations",
         Effect = "Allow",
@@ -912,7 +909,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "arn:aws:s3:::*"
       },
-      # Glue - Read all
       {
         Sid    = "AllowGlueReadAll",
         Effect = "Allow",
@@ -928,7 +924,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # Athena - Read all
       {
         Sid    = "AllowAthenaReadAll",
         Effect = "Allow",
@@ -944,7 +939,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # Lambda - Read all
       {
         Sid    = "AllowLambdaReadAll",
         Effect = "Allow",
@@ -957,7 +951,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # IAM - Read roles and policies
       {
         Sid    = "AllowIAMReadRoles",
         Effect = "Allow",
@@ -970,7 +963,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # Step Functions - Read
       {
         Sid    = "AllowStepFunctionsReadAll",
         Effect = "Allow",
@@ -980,7 +972,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # EventBridge - Read
       {
         Sid    = "AllowEventsReadAll",
         Effect = "Allow",
@@ -991,7 +982,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # DynamoDB - Read (opcional)
       {
         Sid    = "AllowDynamoDBReadAll",
         Effect = "Allow",
@@ -1001,7 +991,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # RDS - Read (opcional)
       {
         Sid    = "AllowRDSReadAll",
         Effect = "Allow",
@@ -1013,7 +1002,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # Resource Groups Tagging API
       {
         Sid    = "AllowResourceTaggingAPI",
         Effect = "Allow",
@@ -1022,7 +1010,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
         ],
         Resource = "*"
       },
-      # CloudWatch Logs
       {
         Sid    = "AllowLogging",
         Effect = "Allow",
@@ -1037,7 +1024,6 @@ resource "aws_iam_role_policy" "backup_configurations" {
   })
 }
 
-# Lambda Function
 data "archive_file" "backup_configurations_zip" {
   type        = "zip"
   source_dir  = "${path.module}/lambdas/backup_configurations"
@@ -1051,24 +1037,24 @@ resource "aws_lambda_function" "backup_configurations" {
   handler          = "lambda_function.lambda_handler"
   runtime          = "python3.11"
   role             = aws_iam_role.backup_configurations.arn
-  timeout          = 900 # 15 minutos
+  timeout          = 900
   memory_size      = 512
 
   environment {
     variables = {
       LOG_LEVEL             = "INFO"
       BACKUP_BUCKET         = var.central_backup_bucket_name
-      INICIATIVA            = var.iniciativa # AÑADIDO: Variable iniciativa
+      INICIATIVA            = var.iniciativa
       TAG_FILTER_KEY        = "BackupEnabled"
       TAG_FILTER_VALUE      = "true"
       INCLUDE_GLUE          = "true"
-      INCLUDE_ATHENA        = "true" # AÑADIDO: Incluir Athena
+      INCLUDE_ATHENA        = "true"
       INCLUDE_LAMBDA        = "true"
       INCLUDE_IAM           = "true"
       INCLUDE_STEPFUNCTIONS = "true"
       INCLUDE_EVENTBRIDGE   = "true"
-      INCLUDE_DYNAMODB      = "false" # Cambiar a true si usas DynamoDB
-      INCLUDE_RDS           = "false" # Cambiar a true si usas RDS
+      INCLUDE_DYNAMODB      = "false"
+      INCLUDE_RDS           = "false"
     }
   }
 
@@ -1078,11 +1064,10 @@ resource "aws_lambda_function" "backup_configurations" {
   }
 }
 
-# EventBridge Rule - Semanal
 resource "aws_cloudwatch_event_rule" "backup_configurations_weekly" {
   name                = "${local.prefijo_recursos}-backup-configs-weekly-${local.sufijo_recursos}"
   description         = "Trigger weekly backup of AWS configurations"
-  schedule_expression = "cron(0 2 ? * SUN *)" # Domingos a las 2 AM UTC
+  schedule_expression = "cron(0 2 ? * SUN *)"
 
   tags = {
     Initiative  = var.iniciativa
@@ -1104,8 +1089,12 @@ resource "aws_lambda_permission" "allow_eventbridge_backup_configurations" {
   source_arn    = aws_cloudwatch_event_rule.backup_configurations_weekly.arn
 }
 
-# Output
 output "backup_configurations_lambda_arn" {
   description = "ARN de la Lambda de backup de configuraciones"
   value       = aws_lambda_function.backup_configurations.arn
+}
+
+output "backup_frequency_configuration" {
+  description = "Frecuencias configuradas para incrementales"
+  value       = local.backup_frequencies
 }

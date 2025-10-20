@@ -5,7 +5,7 @@ import logging
 import uuid
 from urllib.parse import unquote_plus
 from datetime import datetime, timezone
-from typing import Dict, Set, Tuple
+from typing import Dict, Set, Tuple, Optional
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -31,12 +31,36 @@ except json.JSONDecodeError:
     logger.warning("ALLOWED_PREFIXES inválido, usando vacío")
     ALLOWED_PREFIXES = {}
 
-# Frecuencias de ventanas por criticidad
-FREQUENCY_MAP = {
-    "Critico": 12,
-    "MenosCritico": 24,
-    "NoCritico": None,  # No requiere incrementales
-}
+# ============================================================================
+# FRECUENCIAS CONFIGURABLES (CORREGIDO)
+# ============================================================================
+# Leer frecuencias desde variables de entorno en lugar de hardcodear
+# Formato: BACKUP_FREQUENCY_HOURS_CRITICO=12
+# ============================================================================
+
+def get_frequency_hours(criticality: str) -> Optional[int]:
+    """
+    Obtiene la frecuencia de ventana en horas desde variables de entorno.
+    
+    Returns:
+        int: Horas de ventana, o None si no requiere incrementales
+    """
+    env_var_name = f"BACKUP_FREQUENCY_HOURS_{criticality.upper()}"
+    freq_str = os.environ.get(env_var_name)
+    
+    if freq_str is None or freq_str == "" or freq_str == "0":
+        logger.debug(f"No se encontró {env_var_name} o está deshabilitado")
+        return None
+    
+    try:
+        freq = int(freq_str)
+        if freq <= 0:
+            logger.warning(f"{env_var_name}={freq} inválido, ignorando incrementales")
+            return None
+        return freq
+    except ValueError:
+        logger.error(f"{env_var_name}={freq_str} no es un número válido")
+        return None
 
 # Caché para no repetir consultas de tags
 bucket_criticality_cache: Dict[str, str] = {}
@@ -106,13 +130,11 @@ def upload_manifest(
         f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
         f"manifest-{run_id}.csv"
     )
-    
 
     csv_body = "\n".join(f"{source_bucket},{key}" for key in sorted(object_keys))
 
     logger.info(f"Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
 
-    # Usar el mismo bucket central con AES256
     s3_client.put_object(
         Bucket=BACKUP_BUCKET,
         Key=manifest_key,
@@ -154,7 +176,6 @@ def submit_batch_job(
 ) -> str:
     """Crea un job de S3 Batch Operations para copiar los objetos."""
     
-    #Agregado timestamp al data_prefix
     data_prefix = (
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
@@ -164,21 +185,19 @@ def submit_batch_job(
         f"timestamp={run_id}" 
     )
 
-    # Prefijo de reportes
     reports_prefix = (
         f"reports/criticality={criticality}/backup_type=incremental/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/"
         f"window={window_label}/run={run_id}"
     )
 
-    # ARN del manifiesto en el bucket central
     manifest_arn = f"arn:aws:s3:::{BACKUP_BUCKET}/{manifest_key}"
     
     description = (
         f"Incremental backup for {source_bucket} ({criticality}) window {window_label}"
     )
 
-    logger.info(f"   Creando S3 Batch Job:")
+    logger.info(f"  Creando S3 Batch Job:")
     logger.info(f"   Source: {source_bucket}")
     logger.info(f"   Criticality: {criticality}")
     logger.info(f"   Window: {window_label}")
@@ -262,12 +281,15 @@ def lambda_handler(event, context):
 
                 # Obtener criticidad del bucket
                 criticality = get_bucket_criticality(bucket_name)
-                freq_hours = FREQUENCY_MAP.get(criticality)
+                
+                # Obtener frecuencia configurada (CAMBIO PRINCIPAL)
+                freq_hours = get_frequency_hours(criticality)
                 
                 # Validar si requiere incrementales
                 if not freq_hours:
                     logger.debug(
-                        f"Bucket {bucket_name} ({criticality}) no requiere incrementales"
+                        f"Bucket {bucket_name} ({criticality}) no requiere incrementales "
+                        f"(frecuencia no configurada)"
                     )
                     continue
 
@@ -286,6 +308,11 @@ def lambda_handler(event, context):
                 group_key = (criticality, bucket_name, window_label)
                 grouped_objects.setdefault(group_key, set()).add(object_key)
                 window_metadata[group_key] = window_start.astimezone(timezone.utc)
+                
+                logger.debug(
+                    f"Objeto agrupado: {criticality} / {bucket_name} / "
+                    f"ventana {freq_hours}h ({window_label})"
+                )
 
         except Exception as exc:
             processing_failed = True
