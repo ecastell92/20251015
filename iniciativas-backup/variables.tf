@@ -48,15 +48,15 @@ variable "central_account_id" {
 # BUCKET CENTRAL
 # ─────────────────────────────────────────────────────────────────────────────
 
-variable "central_backup_bucket_name" {
-  description = "Nombre COMPLETO del bucket central de backups (debe ser globalmente único)"
-  type        = string
+# variable "central_backup_bucket_name" {
+#   description = "Nombre COMPLETO del bucket central de backups (debe ser globalmente único)"
+#   type        = string
 
-  validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.central_backup_bucket_name))
-    error_message = "El nombre del bucket debe cumplir con las reglas de S3: minúsculas, números, guiones, 3-63 caracteres."
-  }
-}
+#   validation {
+#     condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.central_backup_bucket_name))
+#     error_message = "El nombre del bucket debe cumplir con las reglas de S3: minúsculas, números, guiones, 3-63 caracteres."
+#   }
+# }
 
 variable "central_backup_vault_name" {
   description = "Nombre del AWS Backup Vault"
@@ -292,6 +292,30 @@ variable "min_deep_archive_offset_days" {
     condition     = var.min_deep_archive_offset_days >= 90
     error_message = "S3 requiere mínimo 90 días entre GLACIER_IR y DEEP_ARCHIVE."
   }
+}
+
+// ---------------------------------------------------------------------------
+// Central-resources: limpieza operativa (expuesto en root)
+// ---------------------------------------------------------------------------
+
+variable "cleanup_inventory_source_days" {
+  description = "Dias para expirar inventarios de origen en el bucket central"
+  type        = number
+}
+
+variable "cleanup_batch_reports_days" {
+  description = "Dias para expirar reportes de S3 Batch en el bucket central"
+  type        = number
+}
+
+variable "cleanup_checkpoints_days" {
+  description = "Dias para expirar checkpoints en el bucket central"
+  type        = number
+}
+
+variable "cleanup_manifests_temp_days" {
+  description = "Dias para expirar manifiestos temporales en el bucket central"
+  type        = number
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

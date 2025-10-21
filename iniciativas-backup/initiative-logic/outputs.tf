@@ -88,6 +88,22 @@ output "lambda_functions" {
   }
 }
 
+# Visibilidad del ruteo de incrementales según frecuencias configuradas
+output "event_driven_criticalities" {
+  description = "Criticidades que van por event-driven (0 < h <= 24)"
+  value       = local.notif_criticalities
+}
+
+output "manifest_diff_criticalities" {
+  description = "Criticidades que van por manifest-diff (h > 24)"
+  value       = [for k, h in local.backup_frequencies : k if h > 24]
+}
+
+output "no_incremental_criticalities" {
+  description = "Criticidades sin incremental (h == 0)"
+  value       = [for k, h in local.backup_frequencies : k if h == 0]
+}
+
 output "monitoring_commands" {
   description = "Comandos útiles para monitoreo"
   value       = <<-EOT

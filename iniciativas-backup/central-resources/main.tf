@@ -26,7 +26,7 @@ data "aws_caller_identity" "current" {}
 locals {
   resource_prefix            = "${var.tenant}-${lower(var.environment)}"
   resource_suffix            = "${var.iniciativa}-${var.sufijo_recursos}"
-  central_backup_bucket_name = "${local.resource_prefix}-central-backup-${local.resource_suffix}-notinet"
+  central_backup_bucket_name = "${local.resource_prefix}-central-bck-${local.resource_suffix}-notinet"
   central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
 
   common_tags = {
@@ -221,7 +221,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
   # REGLAS DE LIMPIEZA AGRESIVAS (Archivos operacionales)
   # ─────────────────────────────────────────────────────────────────────────
 
-  # Inventarios origen - OPTIMIZADO: 7 días
+  # Inventarios origen - configurable
   rule {
     id     = "cleanup-inventory-source"
     status = "Enabled"
@@ -230,12 +230,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       prefix = "inventory-source/"
     }
 
-    expiration {
-      days = 7 # CAMBIADO: de 21 a 7 días
-    }
+    expiration { days = var.cleanup_inventory_source_days }
   }
 
-  # Reportes de S3 Batch - OPTIMIZADO: 7 días
+  # Reportes de S3 Batch - configurable
   rule {
     id     = "cleanup-batch-reports"
     status = "Enabled"
@@ -244,12 +242,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       prefix = "reports/"
     }
 
-    expiration {
-      days = 7 # CAMBIADO: de 21 a 7 días
-    }
+    expiration { days = var.cleanup_batch_reports_days }
   }
 
-  # Checkpoints - OPTIMIZADO: 7 días
+  # Checkpoints - configurable
   rule {
     id     = "cleanup-checkpoints"
     status = "Enabled"
@@ -258,12 +254,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       prefix = "checkpoints/"
     }
 
-    expiration {
-      days = 7 # CAMBIADO: de 21 a 7 días
-    }
+    expiration { days = var.cleanup_checkpoints_days }
   }
 
-  # Manifiestos temporales - OPTIMIZADO: 7 días
+  # Manifiestos temporales - configurable
   rule {
     id     = "cleanup-manifests-temp"
     status = "Enabled"
@@ -272,9 +266,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
       prefix = "manifests/temp/"
     }
 
-    expiration {
-      days = 7 # CAMBIADO: de 21 a 7 días
-    }
+    expiration { days = var.cleanup_manifests_temp_days }
   }
 
   depends_on = [aws_s3_bucket_versioning.central_backup]

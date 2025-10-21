@@ -73,15 +73,21 @@ module "central_resources" {
   iniciativa  = var.iniciativa
 
   # Bucket central
-  central_backup_bucket_name = var.central_backup_bucket_name
-  central_backup_vault_name  = var.central_backup_vault_name
-  sufijo_recursos            = var.sufijo_recursos
+  #central_backup_bucket_name = var.central_backup_bucket_name
+  central_backup_vault_name = var.central_backup_vault_name
+  sufijo_recursos           = var.sufijo_recursos
 
   # Reglas GFS optimizadas
   gfs_rules = var.gfs_rules
 
   # Validaciones S3
   min_deep_archive_offset_days = var.min_deep_archive_offset_days
+
+  # Limpieza operativa (passthrough)
+  cleanup_inventory_source_days = var.cleanup_inventory_source_days
+  cleanup_batch_reports_days    = var.cleanup_batch_reports_days
+  cleanup_checkpoints_days      = var.cleanup_checkpoints_days
+  cleanup_manifests_temp_days   = var.cleanup_manifests_temp_days
 
   # Seguridad (opcional)
   enable_object_lock         = var.enable_object_lock

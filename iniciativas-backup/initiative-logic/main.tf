@@ -51,6 +51,12 @@ locals {
     )
   }
 
+  # Criticidades con event-driven (S3→SQS): 0 < horas <= 24
+  notif_criticalities = [
+    for k, h in local.backup_frequencies : k
+    if try(h, 0) > 0 && try(h, 0) <= 24
+  ]
+
   # Hora para ejecución única de la lambda de configuración (~5 minutos después de apply)
   backup_configurations_once_time = formatdate("YYYY-MM-DD'T'HH:mm:ss", timeadd(timestamp(), "5m"))
 }
@@ -105,7 +111,8 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
         Resource = aws_sqs_queue.s3_events_queue.arn
       },
       {
-        Effect = "AllowWriteToCentralBackup"
+        Sid    = "AllowWriteToCentralBackup"
+        Effect = "Allow"
         Action = [
           "s3:PutObject",
           "s3:PutObjectAcl",
@@ -488,10 +495,11 @@ resource "aws_lambda_function" "find_resources" {
 
   environment {
     variables = {
-      LOG_LEVEL             = "INFO"
-      SQS_QUEUE_ARN         = aws_sqs_queue.s3_events_queue.arn
-      CENTRAL_BACKUP_BUCKET = var.central_backup_bucket_name
-      CENTRAL_ACCOUNT_ID    = var.central_account_id
+      LOG_LEVEL                        = "INFO"
+      SQS_QUEUE_ARN                    = aws_sqs_queue.s3_events_queue.arn
+      CENTRAL_BACKUP_BUCKET            = var.central_backup_bucket_name
+      CENTRAL_ACCOUNT_ID               = var.central_account_id
+      CRITICALITIES_WITH_NOTIFICATIONS = join(",", local.notif_criticalities)
     }
   }
 
@@ -1053,7 +1061,14 @@ resource "aws_iam_role_policy" "scheduler_policy" {
 }
 
 resource "aws_scheduler_schedule" "incremental_schedules" {
-  for_each = { for k, v in var.schedule_expressions : k => v if try(v.incremental, null) != null && trimspace(v.incremental) != "" }
+  # Solo agenda incrementales cuando la frecuencia es > 24h (manifest_diff)
+  for_each = {
+    for k, v in var.schedule_expressions :
+    k => v
+    if try(v.incremental, null) != null
+    && trimspace(v.incremental) != ""
+    && lookup(local.backup_frequencies, k, 0) > 24
+  }
 
   name        = "${local.prefijo_recursos}-inc-${lower(each.key)}-${local.sufijo_recursos}"
   group_name  = aws_scheduler_schedule_group.backup_schedules.name
@@ -1388,3 +1403,5 @@ output "backup_frequency_configuration" {
   description = "Frecuencias configuradas para incrementales"
   value       = local.backup_frequencies
 }
+
+

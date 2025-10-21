@@ -1,6 +1,8 @@
 import boto3
 import os
 import logging
+import time
+import random
 from botocore.exceptions import ClientError
 from typing import Dict, Any, List
 
@@ -38,7 +40,12 @@ INVENTORY_FREQUENCIES = {
 }
 
 # Criticidades que requieren notificaciones SQS (solo las que tienen incrementales)
-CRITICALITIES_WITH_NOTIFICATIONS = ["Critico", "MenosCritico"]
+# Se puede configurar via env con lista separada por comas; por defecto solo "Critico"
+_crit_env = os.environ.get("CRITICALITIES_WITH_NOTIFICATIONS", "").strip()
+if _crit_env:
+    CRITICALITIES_WITH_NOTIFICATIONS = [c.strip() for c in _crit_env.split(",") if c.strip()]
+else:
+    CRITICALITIES_WITH_NOTIFICATIONS = ["Critico"]
 
 
 # ============================================================================
@@ -163,13 +170,24 @@ def ensure_event_notification_is_configured(bucket_name: str, queue_arn: str):
         
         if any(q.get("Id") == notification_id for q in queue_configs):
             logger.info(f"Notificación '{notification_id}' ya existe en '{bucket_name}'")
-            return
+            pass
         
         current_config.setdefault("QueueConfigurations", []).append({
             "Id": notification_id,
             "QueueArn": queue_arn,
             "Events": ["s3:ObjectCreated:*"],
         })
+        # Normalizar: dejar una sola entrada por QueueArn para ObjectCreated
+        qcfgs = current_config.get("QueueConfigurations", [])
+        def _is_object_created(cfg):
+            return any(str(e).startswith("s3:ObjectCreated") for e in cfg.get("Events", []))
+        qcfgs = [q for q in qcfgs if not (q.get("QueueArn") == queue_arn and _is_object_created(q))]
+        qcfgs.append({
+            "Id": notification_id,
+            "QueueArn": queue_arn,
+            "Events": ["s3:ObjectCreated:*"],
+        })
+        current_config["QueueConfigurations"] = qcfgs
     
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
@@ -186,16 +204,37 @@ def ensure_event_notification_is_configured(bucket_name: str, queue_arn: str):
             logger.error(f"Error obteniendo notificaciones de '{bucket_name}': {e}")
             raise
 
-    try:
-        s3_client.put_bucket_notification_configuration(
-            Bucket=bucket_name, 
-            NotificationConfiguration=current_config
+    # Put with retry to avoid OperationAborted conflicts
+    max_attempts = 7
+    delay = 0.5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            s3_client.put_bucket_notification_configuration(
+                Bucket=bucket_name,
+                NotificationConfiguration=current_config,
+            )
+            logger.info(f"Notificación SQS configurada en '{bucket_name}'")
+            break
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
+            if code == "OperationAborted" or status in (409, 503):
+                sleep_for = delay + random.uniform(0, delay)
+                logger.warning(
+                    f"Conflicto configurando notificaciones en '{bucket_name}' (intento {attempt}/{max_attempts}). "
+                    f"Reintentando en {sleep_for:.2f}s"
+                )
+                time.sleep(sleep_for)
+                delay = min(delay * 2, 5)
+                continue
+            logger.error(
+                f"Error configurando notificación SQS en '{bucket_name}': {code} status={status} - {e}"
+            )
+            raise
+    else:
+        raise RuntimeError(
+            f"OperationAborted persistente al configurar notificaciones en '{bucket_name}'"
         )
-        logger.info(f"Notificación SQS configurada en '{bucket_name}'")
-    
-    except ClientError as e:
-        logger.error(f"Error configurando notificación SQS en '{bucket_name}': {e}")
-        raise
 
 
 def remove_event_notification_if_exists(bucket_name: str):

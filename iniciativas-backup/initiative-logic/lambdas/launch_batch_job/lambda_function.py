@@ -3,6 +3,7 @@ import os
 import logging
 import json
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -117,9 +118,16 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
         temp_manifest_bucket = manifest["bucket"]
         temp_manifest_key = manifest["key"]
 
-        # Build timestamped prefixes
+        # Build deterministic id (idempotent) from window label (preferred)
+        window_label = event.get("window_label")
+        if not window_label:
+            # fallback estable si no se pasa la ventana
+            window_label = datetime.now(timezone.utc).strftime("%Y%m%dT%H%MZ")
+        base_id = f"{source_bucket}|{backup_type}|{generation}|{criticality}|{window_label}"
+        token = hashlib.sha256(base_id.encode("utf-8")).hexdigest()
+        # Use visible window label as suffix, so reintentos escriben mismo prefijo
+        timestamp_suffix = window_label
         now = datetime.now(timezone.utc)
-        timestamp_suffix = now.strftime("%Y%m%d-%H%M%S")
 
         # Data prefix - donde S3 Batch copiará los objetos
         data_prefix = (
@@ -208,7 +216,8 @@ def lambda_handler(event: Dict[str, Any], context: object) -> Dict[str, Any]:
             },
             RoleArn=BATCH_ROLE_ARN,
             Priority=10,
-            ClientRequestToken=str(uuid.uuid4()),
+            # Idempotent token to prevent duplicate jobs on retries
+            ClientRequestToken=token,
         )
 
         job_id = response["JobId"]

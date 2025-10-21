@@ -24,9 +24,9 @@ central_account_id = "905418243844"
 # BUCKET CENTRAL (REQUERIDO)
 # --------------------------------------------------------------------------
 
-central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
-central_backup_vault_name  = "00-dev-s3-aws-vault-bck-001-aws"
-sufijo_recursos            = "bck-001-aws"
+#central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
+central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
+sufijo_recursos           = "bck-001-aws"
 
 # --------------------------------------------------------------------------
 # SCHEDULES POR CRITICIDAD (REQUERIDO)
@@ -43,7 +43,7 @@ schedule_expressions = {
   # CRÍTICO: RPO 12 horas
   # ========================================================================
   Critico = {
-    incremental = "rate(12 hours)"    # Cada 12h
+    incremental = "rate(6 hours)"     # Cada 12h
     sweep       = "rate(7 days)"      # Full semanal
     grandfather = "cron(0 3 1 * ? *)" # Full mensual (1er día, 3 AM UTC)
   }
@@ -52,18 +52,16 @@ schedule_expressions = {
   # MENOS CRÍTICO: RPO 24 horas
   # ========================================================================
   MenosCritico = {
-    incremental = "rate(24 hours)"      # Cada 24h
-    sweep       = "rate(14 days)"       # Full quincenal
-    grandfather = "cron(0 3 1 */3 ? *)" # Full trimestral
+    incremental = "rate(24 hours)"
+    sweep       = "rate(14 days)"
+    grandfather = "cron(0 3 1 * ? *)"
   }
 
   # ========================================================================
   # NO CRÍTICO: Solo full mensuales (SIN incrementales para ahorrar)
   # ========================================================================
   NoCritico = {
-    # incremental: OMITIDO intencionalmente (ahorro de costos)
-    sweep = "rate(30 days)" # Full mensual únicamente
-    # grandfather: OMITIDO intencionalmente (ahorro de costos)
+    sweep = "rate(30 days)"
   }
 }
 
@@ -78,69 +76,44 @@ schedule_expressions = {
 # --------------------------------------------------------------------------
 
 gfs_rules = {
-  # --------------------------------------------------------------------------
-  # CRÍTICO: RETENCION extendida (14d/365d/730d)
-  # --------------------------------------------------------------------------
   Critico = {
-    enable              = true
-    start_storage_class = "GLACIER_IR" # Acceso rápido
-
-    # Son: Incrementales cada 12h
-    son_retention_days = 14 # 2 semanas
-
-    # Father: Full semanales
-    father_da_days        = 90  # Transición a DEEP_ARCHIVE a los 90d
-    father_retention_days = 365 # Retener 1 año
-    father_archive_class  = "DEEP_ARCHIVE"
-
-    # Grandfather: Full mensuales (AUDITORIA)
-    grandfather_da_days        = 0   # DEEP_ARCHIVE inmediato
-    grandfather_retention_days = 730 # Retener 2 años
+    enable                     = true
+    start_storage_class        = "GLACIER_IR"
+    son_retention_days         = 14
+    father_da_days             = 0
+    father_retention_days      = 28
+    father_archive_class       = "DEEP_ARCHIVE"
+    grandfather_da_days        = 90
+    grandfather_retention_days = 365
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # --------------------------------------------------------------------------
-  # MENOS CRÍTICO: RETENCION moderada (7d/120d/365d)
-  # --------------------------------------------------------------------------
   MenosCritico = {
-    enable              = true
-    start_storage_class = "GLACIER_IR"
-
-    # Son: Incrementales cada 24h
-    son_retention_days = 7 # 1 semana
-
-    # Father: Full quincenales
-    father_da_days        = 90  # Transición a DEEP_ARCHIVE
-    father_retention_days = 120 # ~4 MASes
-    father_archive_class  = "DEEP_ARCHIVE"
-
-    # Grandfather: Full trimestrales
-    grandfather_da_days        = 0   # DEEP_ARCHIVE inmediato
-    grandfather_retention_days = 365 # 1 año
+    enable                     = true
+    start_storage_class        = "GLACIER_IR"
+    son_retention_days         = 7
+    father_da_days             = 0
+    father_retention_days      = 28
+    father_archive_class       = "DEEP_ARCHIVE"
+    grandfather_da_days        = 90
+    grandfather_retention_days = 365
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
 
-  # --------------------------------------------------------------------------
-  # NO CRÍTICO: RETENCION mínima (solo 90d full, sin incrementales)
-  # --------------------------------------------------------------------------
   NoCritico = {
-    enable              = true
-    start_storage_class = "GLACIER" # MAS barato (sin recuperación rápida)
-
-    # Son: Sin incrementales (ahorro máximo)
-    son_retention_days = 0
-
-    # Father: Solo full mensuales
-    father_da_days        = 0  # Permanecer en GLACIER
-    father_retention_days = 90 # Mínimo requerido por GLACIER
-    father_archive_class  = "GLACIER"
-
-    # Grandfather: Deshabilitado (ahorro)
+    enable                     = true
+    start_storage_class        = "GLACIER"
+    son_retention_days         = 0
+    father_da_days             = 0
+    father_retention_days      = 30
+    father_archive_class       = "GLACIER"
     grandfather_da_days        = 0
     grandfather_retention_days = 0
     grandfather_archive_class  = "GLACIER"
   }
 }
+
+
 
 # --------------------------------------------------------------------------
 # CONFIGURACION DE TAGS Y PREFIJOS
@@ -198,6 +171,15 @@ fallback_time_limit_seconds = 300    # 5 minutos máximo
 
 min_deep_archive_offset_days = 90 # Requisito S3: mínimo entre GLACIER_IR y DA
 
+
+# ---------------------------------------------------------------------------
+# LIMPIEZA DE ARCHIVOS OPERACIONALES (central-resources)
+# ---------------------------------------------------------------------------
+
+cleanup_inventory_source_days = 7
+cleanup_batch_reports_days    = 7
+cleanup_checkpoints_days      = 7
+cleanup_manifests_temp_days   = 7
 # Seguridad (opcional - por defecto deshabilitado)
 enable_object_lock         = false
 object_lock_mode           = "COMPLIANCE"
@@ -206,38 +188,7 @@ deny_delete_enabled        = false
 allow_delete_principals    = []
 require_mfa_for_delete     = false
 
-# --------------------------------------------------------------------------
-# LIFECYCLE RULES LEGACY (DEPRECATED - mantener por compatibilidad)
-# --------------------------------------------------------------------------
-
-lifecycle_rules = {
-  Critico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 90
-    expiration_days                     = 365
-    incremental_expiration_days         = 14
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = true
-  }
-
-  MenosCritico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 90
-    expiration_days                     = 120
-    incremental_expiration_days         = 7
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = true
-  }
-
-  NoCritico = {
-    glacier_transition_days             = 0
-    deep_archive_transition_days        = 0
-    expiration_days                     = 90
-    incremental_expiration_days         = 0
-    incremental_glacier_transition_days = 0
-    use_glacier_ir                      = false
-  }
-}
+# LIFECYCLE RULES LEGACY (DEPRECATED) – se usan los defaults del módulo
 
 # --------------------------------------------------------------------------
 #  EJEMPLOS DE CONFIGURACION
@@ -295,11 +246,13 @@ lifecycle_rules = {
 # -------------------------------------------------------------------------- RETENCION: 90 días
 
 # --------------------------------------------------------------------------
-# 🔍 CÓMO FUNCIONA EL ROUTING AUTOMÁTICO
+#  CÓMO FUNCIONA EL ROUTING AUTOMÁTICO
 # --------------------------------------------------------------------------
 #
 # Como funciona el routing de backups (resumen):
 # - Paso 1: Ajusta schedule_expressions por criticidad.
 # - Paso 2: Si incremental < 24h -> event-driven (Lambda incremental_backup + SQS). Si no -> manifest diff (filter_inventory + Step Functions).
 # - Paso 3: Se aplican storage class y retenciones segun criticidad (GFS).
+
+
 
