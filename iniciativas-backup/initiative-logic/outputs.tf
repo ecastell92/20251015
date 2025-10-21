@@ -84,6 +84,7 @@ output "lambda_functions" {
     launch_batch_job      = aws_lambda_function.launch_batch_job.function_name
     incremental_backup    = aws_lambda_function.incremental_backup.function_name
     backup_configurations = aws_lambda_function.backup_configurations.function_name
+    restore_from_backup   = aws_lambda_function.restore_from_backup.function_name
   }
 }
 
@@ -124,10 +125,10 @@ output "sns_topic_arn" {
 output "cost_optimization_applied" {
   description = "Resumen de optimizaciones aplicadas"
   value = {
-    sqs_batch_size              = "1000 (antes: 10) → Reducción 99% invocaciones"
-    sqs_batching_window         = "300s (antes: 20s)"
-    log_retention               = "7/14 días (antes: indefinido)"
-    dlq_enabled                 = "true (antes: false)"
-    estimated_monthly_savings   = "$9,600+ (para 20 buckets con 10M objetos)"
+    sqs_batch_size            = "1000 (antes: 10) → Reducción 99% invocaciones"
+    sqs_batching_window       = "300s (antes: 20s)"
+    log_retention             = "7/14 días (antes: indefinido)"
+    dlq_enabled               = "true (antes: false)"
+    estimated_monthly_savings = "$9,600+ (para 20 buckets con 10M objetos)"
   }
 }

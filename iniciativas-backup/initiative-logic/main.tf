@@ -613,6 +613,100 @@ resource "aws_lambda_function" "incremental_backup" {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Restore from Backup - Lambda (S3-only, sin DynamoDB)
+// -----------------------------------------------------------------------------
+
+resource "aws_iam_role" "restore_from_backup" {
+  name = "${local.prefijo_recursos}-iam-role-restore-${local.sufijo_recursos}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy" "restore_from_backup" {
+  name = "${local.prefijo_recursos}-iam-policy-restore-${local.sufijo_recursos}"
+  role = aws_iam_role.restore_from_backup.name
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "AllowReadCentralBackup",
+        Effect = "Allow",
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ],
+        Resource = [
+          local.central_backup_bucket_arn,
+          "${local.central_backup_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "AllowWriteToSourceBuckets",
+        Effect = "Allow",
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectAcl"
+        ],
+        Resource = "arn:aws:s3:::*/*"
+      },
+      {
+        Sid    = "AllowLogging",
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      }
+    ]
+  })
+}
+
+data "archive_file" "restore_from_backup_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambdas/restore_from_backup"
+  output_path = "${path.module}/build/restore_from_backup.zip"
+}
+
+resource "aws_lambda_function" "restore_from_backup" {
+  function_name    = "${local.prefijo_recursos}-restore-from-backup-${local.sufijo_recursos}"
+  filename         = data.archive_file.restore_from_backup_zip.output_path
+  source_code_hash = data.archive_file.restore_from_backup_zip.output_base64sha256
+  handler          = "lambda_function.lambda_handler"
+  runtime          = "python3.11"
+  role             = aws_iam_role.restore_from_backup.arn
+  timeout          = 900
+  memory_size      = 512
+
+  environment {
+    variables = {
+      LOG_LEVEL          = "INFO"
+      CENTRAL_BUCKET     = var.central_backup_bucket_name
+      INITIATIVE         = var.iniciativa
+    }
+  }
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
 resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn = aws_sqs_queue.s3_events_queue.arn
   function_name    = aws_lambda_function.incremental_backup.function_name
@@ -1240,19 +1334,19 @@ resource "aws_lambda_function" "backup_configurations" {
 
   environment {
     variables = {
-      LOG_LEVEL             = "INFO"
+      LOG_LEVEL             = var.backup_config_log_level
       BACKUP_BUCKET         = var.central_backup_bucket_name
       INICIATIVA            = var.iniciativa
-      TAG_FILTER_KEY        = "BackupEnabled"
-      TAG_FILTER_VALUE      = "true"
-      INCLUDE_GLUE          = "true"
-      INCLUDE_ATHENA        = "true"
-      INCLUDE_LAMBDA        = "true"
-      INCLUDE_IAM           = "true"
-      INCLUDE_STEPFUNCTIONS = "true"
-      INCLUDE_EVENTBRIDGE   = "true"
-      INCLUDE_DYNAMODB      = "false"
-      INCLUDE_RDS           = "false"
+      TAG_FILTER_KEY        = var.backup_config_tag_filter_key
+      TAG_FILTER_VALUE      = var.backup_config_tag_filter_value
+      INCLUDE_GLUE          = tostring(var.backup_config_include_glue)
+      INCLUDE_ATHENA        = tostring(var.backup_config_include_athena)
+      INCLUDE_LAMBDA        = tostring(var.backup_config_include_lambda)
+      INCLUDE_IAM           = tostring(var.backup_config_include_iam)
+      INCLUDE_STEPFUNCTIONS = tostring(var.backup_config_include_stepfunctions)
+      INCLUDE_EVENTBRIDGE   = tostring(var.backup_config_include_eventbridge)
+      INCLUDE_DYNAMODB      = tostring(var.backup_config_include_dynamodb)
+      INCLUDE_RDS           = tostring(var.backup_config_include_rds)
     }
   }
 

@@ -25,3 +25,4 @@ iniciativas-backup/.terraform/providers/registry.terraform.io/hashicorp/aws/5.10
 iniciativas-backup/.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/terraform-provider-aws_v5.100.0_x5.exe
 iniciativas-backup/terraform.tfstate
 iniciativas-backup/.terraform.lock.hcl
+iniciativas-backup/initiative-logic/build/restore_from_backup.zip

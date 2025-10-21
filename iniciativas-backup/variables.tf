@@ -2,6 +2,11 @@
 # CONFIGURACIÓN BÁSICA
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ============================================================================
+# Root Module - Variables
+# ASCII-only comments for consistent readability across IDE/CI
+# ============================================================================
+
 variable "aws_region" {
   description = "Región de AWS donde se despliegan todos los recursos"
   type        = string
@@ -205,6 +210,76 @@ variable "backup_tags" {
   description = "Tags aplicados a recursos de backup para cost allocation"
   type        = map(string)
   default     = {}
+}
+
+// ---------------------------------------------------------------------------
+// BACKUP CONFIGURATIONS (Lambda) - toggles y filtros
+// ---------------------------------------------------------------------------
+
+variable "backup_config_log_level" {
+  description = "Nivel de log para la Lambda de backup de configuraciones"
+  type        = string
+  default     = "INFO"
+}
+
+variable "backup_config_tag_filter_key" {
+  description = "Tag key para filtrar buckets/recursos que exporta la Lambda de configuraciones"
+  type        = string
+  default     = "BackupEnabled"
+}
+
+variable "backup_config_tag_filter_value" {
+  description = "Valor del tag para filtrar recursos en la Lambda de configuraciones"
+  type        = string
+  default     = "true"
+}
+
+variable "backup_config_include_glue" {
+  description = "Incluir export de configuraciones de AWS Glue"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_athena" {
+  description = "Incluir export de configuraciones de AWS Athena"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_lambda" {
+  description = "Incluir export de configuraciones de AWS Lambda"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_iam" {
+  description = "Incluir export de configuraciones de IAM"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_stepfunctions" {
+  description = "Incluir export de configuraciones de Step Functions"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_eventbridge" {
+  description = "Incluir export de configuraciones de EventBridge"
+  type        = bool
+  default     = true
+}
+
+variable "backup_config_include_dynamodb" {
+  description = "Incluir export de configuraciones de DynamoDB"
+  type        = bool
+  default     = false
+}
+
+variable "backup_config_include_rds" {
+  description = "Incluir export de configuraciones de RDS"
+  type        = bool
+  default     = false
 }
 
 

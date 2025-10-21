@@ -6,6 +6,11 @@
 # CONFIGURACIÓN BÁSICA
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ============================================================================
+# Central Resources Module - Variables
+# ASCII-only comments for consistent readability across IDE/CI
+# ============================================================================
+
 variable "aws_region" {
   description = "Región de AWS donde se despliegan los recursos centrales"
   type        = string

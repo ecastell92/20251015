@@ -1,3 +1,8 @@
+# ============================================================================
+# Central Resources Module - Main
+# ASCII-only comments for consistent readability across IDE/CI
+# ============================================================================
+
 terraform {
   required_providers {
     aws = {

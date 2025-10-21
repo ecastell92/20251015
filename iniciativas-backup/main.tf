@@ -53,8 +53,8 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  account_id = data.aws_caller_identity.current.account_id
-  region     = data.aws_region.current.name
+  account_id         = data.aws_caller_identity.current.account_id
+  region             = data.aws_region.current.name
   central_account_id = coalesce(var.central_account_id, var.cuenta, data.aws_caller_identity.current.account_id)
 }
 
@@ -128,6 +128,19 @@ module "initiative_logic" {
 
   # Tags para cost allocation
   backup_tags = var.backup_tags
+
+  # Config Lambda (toggles y filtros)
+  backup_config_log_level             = var.backup_config_log_level
+  backup_config_tag_filter_key        = var.backup_config_tag_filter_key
+  backup_config_tag_filter_value      = var.backup_config_tag_filter_value
+  backup_config_include_glue          = var.backup_config_include_glue
+  backup_config_include_athena        = var.backup_config_include_athena
+  backup_config_include_lambda        = var.backup_config_include_lambda
+  backup_config_include_iam           = var.backup_config_include_iam
+  backup_config_include_stepfunctions = var.backup_config_include_stepfunctions
+  backup_config_include_eventbridge   = var.backup_config_include_eventbridge
+  backup_config_include_dynamodb      = var.backup_config_include_dynamodb
+  backup_config_include_rds           = var.backup_config_include_rds
 
   # Sufijo para nombres únicos
   sufijo_recursos = var.sufijo_recursos
