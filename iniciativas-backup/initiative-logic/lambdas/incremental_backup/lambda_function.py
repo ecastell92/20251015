@@ -6,6 +6,8 @@ import uuid
 from urllib.parse import unquote_plus
 from datetime import datetime, timezone
 from typing import Dict, Set, Tuple, Optional, List
+import io
+import csv
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -23,6 +25,7 @@ GENERATION_INCREMENTAL = os.environ.get("GENERATION_INCREMENTAL", "son")
 CRITICALITY_TAG_KEY = os.environ.get("CRITICALITY_TAG_KEY", "BackupCriticality")
 ACCOUNT_ID = os.environ["ACCOUNT_ID"]
 BATCH_ROLE_ARN = os.environ["BATCH_ROLE_ARN"]
+DISABLE_WINDOW_CHECKPOINT = os.environ.get("DISABLE_WINDOW_CHECKPOINT", "false").lower() == "true"
 
 # Prefijos permitidos por criticidad
 try:
@@ -161,7 +164,12 @@ def upload_manifest(
         f"manifest-{run_id}.csv"
     )
 
-    csv_body = "\n".join(f"{source_bucket},{key}" for key in sorted(object_keys))
+    # Build CSV safely using csv.writer (handles special chars)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for key in sorted(object_keys):
+        writer.writerow([source_bucket, key])
+    csv_body = buf.getvalue()
 
     logger.info(f"Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
 
@@ -206,13 +214,12 @@ def submit_batch_job(
 ) -> str:
     """Crea un job de S3 Batch Operations para copiar los objetos."""
     
+    window_label = window_start.strftime('%Y%m%dT%H%MZ')
     data_prefix = (
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/"
-        f"year={window_start.strftime('%Y')}/month={window_start.strftime('%m')}/"
-        f"day={window_start.strftime('%d')}/hour={window_start.strftime('%H')}/"
-        f"timestamp={run_id}" 
+        f"window={window_label}/"
     )
 
     reports_prefix = (
@@ -378,12 +385,13 @@ def lambda_handler(event, context):
         criticality, source_bucket, window_label = group_key
         window_start = window_metadata[group_key]
 
-        # Skip if this window was already processed (idempotence by window)
-        if has_window_been_processed(BACKUP_BUCKET, source_bucket, criticality, window_label):
-            logger.info(
-                f"Ventana ya procesada anteriormente, saltando: {source_bucket} / {criticality} / {window_label}"
-            )
-            continue
+        # Optional idempotence by window; disabled by default to avoid dropping late events
+        if not DISABLE_WINDOW_CHECKPOINT:
+            if has_window_been_processed(BACKUP_BUCKET, source_bucket, criticality, window_label):
+                logger.info(
+                    f"Ventana ya procesada anteriormente, saltando: {source_bucket} / {criticality} / {window_label}"
+                )
+                continue
 
         logger.info(f"\n Procesando grupo:")
         logger.info(f"   Bucket: {source_bucket}")
@@ -417,10 +425,11 @@ def lambda_handler(event, context):
             })
 
             # Mark window as processed (checkpoint) after successful job submission
-            try:
-                write_window_checkpoint(BACKUP_BUCKET, source_bucket, criticality, window_label)
-            except Exception as e:
-                logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
+            if not DISABLE_WINDOW_CHECKPOINT:
+                try:
+                    write_window_checkpoint(BACKUP_BUCKET, source_bucket, criticality, window_label)
+                except Exception as e:
+                    logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
         
         except Exception as exc:
             # Map the failure to the contributing SQS messages for partial retries

@@ -614,7 +614,7 @@ resource "aws_lambda_function" "incremental_backup" {
   environment {
     variables = merge(
       {
-        LOG_LEVEL              = "INFO"
+        LOG_LEVEL              = var.incremental_log_level
         BACKUP_BUCKET          = var.central_backup_bucket_name
         BACKUP_BUCKET_ARN      = local.central_backup_bucket_arn
         INICIATIVA             = var.iniciativa
@@ -623,6 +623,7 @@ resource "aws_lambda_function" "incremental_backup" {
         GENERATION_INCREMENTAL = "son"
         ACCOUNT_ID             = data.aws_caller_identity.current.account_id
         BATCH_ROLE_ARN         = aws_iam_role.batch_job_role.arn
+        DISABLE_WINDOW_CHECKPOINT = tostring(var.disable_window_checkpoint)
       },
 
       {

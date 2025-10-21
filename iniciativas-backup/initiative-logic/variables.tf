@@ -178,3 +178,16 @@ variable "kms_allow_viaservice" {
   type        = bool
   default     = true
 }
+
+# Controla si la lambda incremental usa checkpoints por ventana
+variable "disable_window_checkpoint" {
+  description = "Deshabilitar checkpoint por ventana en incrementales (evita saltar objetos posteriores en la misma ventana)"
+  type        = bool
+  default     = true
+}
+# Control de log para la Lambda incremental
+variable "incremental_log_level" {
+  description = "Nivel de log para la Lambda incremental (DEBUG, INFO, WARNING, ERROR)"
+  type        = string
+  default     = "INFO"
+}
