@@ -93,18 +93,6 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
         Resource = "arn:aws:s3:::*/*"
       },
       {
-        Sid    = "AllowWriteToCentralBackup",
-        Effect = "Allow",
-        Action = [
-          "s3:PutObject",
-          "s3:PutObjectAcl"
-        ],
-        Resource = [
-          "${local.central_backup_bucket_arn}",
-          "${local.central_backup_bucket_arn}/*"
-        ]
-      },
-      {
         Sid      = "AllowLogging",
         Effect   = "Allow",
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
@@ -117,7 +105,7 @@ resource "aws_iam_role_policy" "lambda_backup_policy" {
         Resource = aws_sqs_queue.s3_events_queue.arn
       },
       {
-        Effect = "Allow"
+        Effect = "AllowWriteToCentralBackup"
         Action = [
           "s3:PutObject",
           "s3:PutObjectAcl",
@@ -695,9 +683,9 @@ resource "aws_lambda_function" "restore_from_backup" {
 
   environment {
     variables = {
-      LOG_LEVEL          = "INFO"
-      CENTRAL_BUCKET     = var.central_backup_bucket_name
-      INITIATIVE         = var.iniciativa
+      LOG_LEVEL      = "INFO"
+      CENTRAL_BUCKET = var.central_backup_bucket_name
+      INITIATIVE     = var.iniciativa
     }
   }
 
