@@ -117,6 +117,13 @@ variable "cleanup_manifests_temp_days" {
   default     = 7
 }
 
+# Retención para respaldos de configuraciones (backup_type=configurations)
+variable "cleanup_configurations_days" {
+  description = "Días para expirar los JSON de configuraciones guardados bajo backup_type=configurations"
+  type        = number
+  default     = 90
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SEGURIDAD

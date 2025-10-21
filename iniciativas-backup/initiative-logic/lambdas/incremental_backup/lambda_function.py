@@ -173,7 +173,7 @@ def upload_manifest(
 
     logger.info(f"Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
 
-    s3_client.put_object(
+    put_resp = s3_client.put_object(
         Bucket=BACKUP_BUCKET,
         Key=manifest_key,
         Body=csv_body.encode("utf-8"),
@@ -188,11 +188,10 @@ def upload_manifest(
         },
     )
 
-    # Obtener ETag
-    etag = s3_client.head_object(
-        Bucket=BACKUP_BUCKET, 
-        Key=manifest_key
-    )["ETag"].strip('"')
+    # Obtener ETag del put para evitar inconsistencias; mantener comillas tal como retorna S3
+    etag = put_resp.get("ETag")
+    if not etag:
+        etag = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)["ETag"]
 
     logger.info(f"Manifiesto creado con {len(object_keys)} objetos")
 
@@ -219,7 +218,9 @@ def submit_batch_job(
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/"
-        f"window={window_label}/"
+        f"year={window_start.strftime('%Y')}/month={window_start.strftime('%m')}/"
+        f"day={window_start.strftime('%d')}/hour={window_start.strftime('%H')}/"
+        f"window={window_label}"
     )
 
     reports_prefix = (

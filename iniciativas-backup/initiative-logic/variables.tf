@@ -56,6 +56,18 @@ variable "allowed_prefixes" {
   }
 }
 
+variable "exclude_key_prefixes" {
+  description = "Prefijos a excluir en incrementales (p. ej. temporales)"
+  type        = list(string)
+  default     = ["temporary/", "sparkHistoryLogs/"]
+}
+
+variable "exclude_key_suffixes" {
+  description = "Sufijos a excluir en incrementales (p. ej. .inprogress o marcadores de carpeta)"
+  type        = list(string)
+  default     = [".inprogress", "/"]
+}
+
 variable "schedule_expressions" {
   description = "Expresiones de schedule por criticidad"
   type = map(object({

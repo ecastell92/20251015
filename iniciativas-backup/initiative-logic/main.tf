@@ -34,11 +34,6 @@ locals {
   central_backup_bucket_arn = "arn:aws:s3:::${var.central_backup_bucket_name}"
 
   # Extraer frecuencias en horas desde schedule_expressions
-  # Admite formatos con espacios/mayúsculas y también "days" → horas
-  # Ejemplos:
-  #   rate(12 hours)  => 12
-  #   rate( 24 HOURS ) => 24
-  #   rate(2 days)    => 48
   backup_frequencies = {
     for k, v in var.schedule_expressions : k => (
       v.incremental == null || trimspace(v.incremental) == "" ? 0 : (
@@ -51,13 +46,34 @@ locals {
     )
   }
 
-  # Criticidades con event-driven (S3→SQS): 0 < horas <= 24
+  # ============================================================================
+  # CORRECCIÓN 1: Routing Explícito y Consistente
+  # ============================================================================
+  # REGLA: 
+  # - 0 < horas <= 24: Event-driven (SQS + Lambda incremental_backup)
+  # - horas > 24: Manifest-diff (Schedule → Step Function → filter_inventory)
+  # - horas == 0: Sin incrementales
+  # ============================================================================
+
+  # Criticidades con event-driven (SQS): 0 < h <= 24
   notif_criticalities = [
     for k, h in local.backup_frequencies : k
     if try(h, 0) > 0 && try(h, 0) <= 24
   ]
 
-  # Hora para ejecución única de la lambda de configuración (~5 minutos después de apply)
+  # Criticidades con manifest-diff (Schedule): h > 24
+  manifest_diff_criticalities = [
+    for k, h in local.backup_frequencies : k
+    if try(h, 0) > 24
+  ]
+
+  # Criticidades sin incrementales: h == 0
+  no_incremental_criticalities = [
+    for k, h in local.backup_frequencies : k
+    if try(h, 0) == 0
+  ]
+
+  # Hora para ejecución única de configuración (~5 min después de apply)
   backup_configurations_once_time = formatdate("YYYY-MM-DD'T'HH:mm:ss", timeadd(timestamp(), "5m"))
 }
 
@@ -358,7 +374,7 @@ resource "aws_iam_role_policy" "batch_job_role_policy" {
           "${local.central_backup_bucket_arn}/*"
         ]
       }
-    ], length(var.source_kms_key_arns) > 0 ? [
+      ], length(var.source_kms_key_arns) > 0 ? [
       {
         Sid    = "AllowKMSToReadSourceObjects",
         Effect = "Allow",
@@ -370,7 +386,7 @@ resource "aws_iam_role_policy" "batch_job_role_policy" {
         ],
         Resource = var.source_kms_key_arns
       }
-    ] : [], var.kms_allow_viaservice ? [
+      ] : [], var.kms_allow_viaservice ? [
       {
         Sid    = "AllowKMSDecryptViaS3Service",
         Effect = "Allow",
@@ -614,15 +630,15 @@ resource "aws_lambda_function" "incremental_backup" {
   environment {
     variables = merge(
       {
-        LOG_LEVEL              = var.incremental_log_level
-        BACKUP_BUCKET          = var.central_backup_bucket_name
-        BACKUP_BUCKET_ARN      = local.central_backup_bucket_arn
-        INICIATIVA             = var.iniciativa
-        ALLOWED_PREFIXES       = jsonencode(var.allowed_prefixes)
-        CRITICALITY_TAG_KEY    = var.criticality_tag
-        GENERATION_INCREMENTAL = "son"
-        ACCOUNT_ID             = data.aws_caller_identity.current.account_id
-        BATCH_ROLE_ARN         = aws_iam_role.batch_job_role.arn
+        LOG_LEVEL                 = var.incremental_log_level
+        BACKUP_BUCKET             = var.central_backup_bucket_name
+        BACKUP_BUCKET_ARN         = local.central_backup_bucket_arn
+        INICIATIVA                = var.iniciativa
+        ALLOWED_PREFIXES          = jsonencode(var.allowed_prefixes)
+        CRITICALITY_TAG_KEY       = var.criticality_tag
+        GENERATION_INCREMENTAL    = "son"
+        ACCOUNT_ID                = data.aws_caller_identity.current.account_id
+        BATCH_ROLE_ARN            = aws_iam_role.batch_job_role.arn
         DISABLE_WINDOW_CHECKPOINT = tostring(var.disable_window_checkpoint)
       },
 
@@ -1097,18 +1113,18 @@ resource "aws_iam_role_policy" "scheduler_policy" {
 }
 
 resource "aws_scheduler_schedule" "incremental_schedules" {
-  # Solo agenda incrementales cuando la frecuencia es > 24h (manifest_diff)
+  # CAMBIO CRÍTICO: invertir la condición
   for_each = {
     for k, v in var.schedule_expressions :
     k => v
     if try(v.incremental, null) != null
     && trimspace(v.incremental) != ""
-    && lookup(local.backup_frequencies, k, 0) > 24
+    && lookup(local.backup_frequencies, k, 0) > 24 # Solo >24h (manifest-diff)
   }
 
   name        = "${local.prefijo_recursos}-inc-${lower(each.key)}-${local.sufijo_recursos}"
   group_name  = aws_scheduler_schedule_group.backup_schedules.name
-  description = "Backup incremental para ${each.key}"
+  description = "Backup incremental (manifest-diff) para ${each.key}"
 
   flexible_time_window { mode = "OFF" }
 
@@ -1460,3 +1476,22 @@ output "backup_frequency_configuration" {
   value       = local.backup_frequencies
 }
 
+# output "event_driven_criticalities" {
+#   description = "Criticidades que van por event-driven (0 < h <= 24)"
+#   value       = local.notif_criticalities
+# }
+
+# output "manifest_diff_criticalities" {
+#   description = "Criticidades que van por manifest-diff (h > 24)"
+#   value       = local.manifest_diff_criticalities
+# }
+
+# output "no_incremental_criticalities" {
+#   description = "Criticidades sin incremental (h == 0)"
+#   value       = local.no_incremental_criticalities
+# }
+
+# output "backup_frequency_configuration" {
+#   description = "Frecuencias configuradas para incrementales (en horas)"
+#   value       = local.backup_frequencies
+# }

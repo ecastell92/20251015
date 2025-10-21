@@ -269,6 +269,32 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     expiration { days = var.cleanup_manifests_temp_days }
   }
 
+  # Manifiestos finales - configurable
+  rule {
+    id     = "cleanup-manifests"
+    status = "Enabled"
+
+    filter {
+      prefix = "manifests/"
+    }
+
+    # Reutiliza el mismo horizonte que reports si no se define variable específica
+    expiration { days = var.cleanup_batch_reports_days }
+  }
+
+  # Configuraciones (backup_type=configurations) - configurable por criticidad
+  dynamic "rule" {
+    for_each = { for k, v in var.gfs_rules : k => v if v.enable }
+    content {
+      id     = "cleanup-configurations-${rule.key}"
+      status = "Enabled"
+      filter {
+        prefix = "backup/criticality=${rule.key}/backup_type=configurations/"
+      }
+      expiration { days = var.cleanup_configurations_days }
+    }
+  }
+
   depends_on = [aws_s3_bucket_versioning.central_backup]
 }
 

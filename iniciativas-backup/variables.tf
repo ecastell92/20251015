@@ -339,3 +339,9 @@ variable "lifecycle_rules" {
     NoCritico    = { glacier_transition_days = 0, deep_archive_transition_days = 0, expiration_days = 90, incremental_expiration_days = 0, incremental_glacier_transition_days = 0, use_glacier_ir = false }
   }
 }
+
+variable "disable_window_checkpoint" {
+  description = "Deshabilitar checkpoints de ventana en backups incrementales"
+  type        = bool
+  default     = true
+}
