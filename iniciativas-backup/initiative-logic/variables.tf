@@ -164,3 +164,17 @@ variable "backup_config_include_rds" {
   type        = bool
   default     = false
 }
+
+# Optional: KMS keys used to encrypt source S3 objects. If provided,
+# S3 Batch Operations role will get kms:Decrypt permissions to read them.
+variable "source_kms_key_arns" {
+  description = "Lista de ARNs de llaves KMS usadas por buckets origen (para permitir kms:Decrypt en copias Batch)"
+  type        = list(string)
+  default     = []
+}
+
+variable "kms_allow_viaservice" {
+  description = "Permitir kms:Decrypt para cualquier CMK en la región vía servicio S3 (condicionado por kms:ViaService). Útil cuando hay múltiples llaves en origen."
+  type        = bool
+  default     = true
+}

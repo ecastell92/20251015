@@ -5,7 +5,7 @@ import logging
 import uuid
 from urllib.parse import unquote_plus
 from datetime import datetime, timezone
-from typing import Dict, Set, Tuple, Optional
+from typing import Dict, Set, Tuple, Optional, List
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -292,15 +292,30 @@ def lambda_handler(event, context):
     # Agrupar objetos por (criticidad, bucket, ventana)
     grouped_objects: Dict[Tuple[str, str, str], Set[str]] = {}
     window_metadata: Dict[Tuple[str, str, str], datetime] = {}
-
-    processing_failed = False
+    # Track which SQS messageIds feed each group for partial-batch failure reporting
+    group_message_ids: Dict[Tuple[str, str, str], Set[str]] = {}
+    failed_message_ids: List[str] = []
 
     # Procesar cada registro SQS
     for record in records:
         try:
-            s3_event = json.loads(record["body"])
+            body = record.get("body", "")
+            message_id = record.get("messageId") or record.get("messageId".upper(), "")
+            try:
+                s3_event = json.loads(body) if isinstance(body, str) else body
+            except json.JSONDecodeError:
+                logger.warning(f"Body no es JSON (messageId={message_id}); marcando como fallo parcial")
+                if message_id:
+                    failed_message_ids.append(message_id)
+                continue
             
-            for s3_record in s3_event.get("Records", []):
+            recs = s3_event.get("Records", []) if isinstance(s3_event, dict) else []
+            for s3_record in recs:
+                if not isinstance(s3_record, dict):
+                    continue
+                if "s3" not in s3_record or "bucket" not in s3_record["s3"] or "object" not in s3_record["s3"]:
+                    logger.debug("Record sin datos S3 esperados; omitiendo")
+                    continue
                 bucket_name = s3_record["s3"]["bucket"]["name"]
                 object_key = unquote_plus(s3_record["s3"]["object"]["key"])
                 event_time = datetime.fromisoformat(
@@ -338,6 +353,8 @@ def lambda_handler(event, context):
                 group_key = (criticality, bucket_name, window_label)
                 grouped_objects.setdefault(group_key, set()).add(object_key)
                 window_metadata[group_key] = window_start.astimezone(timezone.utc)
+                if message_id:
+                    group_message_ids.setdefault(group_key, set()).add(message_id)
                 
                 logger.debug(
                     f"Objeto agrupado: {criticality} / {bucket_name} / "
@@ -345,8 +362,10 @@ def lambda_handler(event, context):
                 )
 
         except Exception as exc:
-            processing_failed = True
-            logger.error(f"Error procesando record: {exc}", exc_info=True)
+            mid = record.get("messageId")
+            if mid:
+                failed_message_ids.append(mid)
+            logger.error(f"Error procesando record {mid}: {exc}", exc_info=True)
 
     # Procesar grupos y crear batch jobs
     jobs_created = []
@@ -404,29 +423,30 @@ def lambda_handler(event, context):
                 logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
         
         except Exception as exc:
-            processing_failed = True
+            # Map the failure to the contributing SQS messages for partial retries
+            mids = list(group_message_ids.get(group_key, set()))
+            failed_message_ids.extend(mids)
             logger.error(
                 f"Error creando job para {source_bucket} ventana {window_label}: {exc}",
                 exc_info=True
             )
 
-    # Error si hubo fallos
-    if processing_failed:
-        logger.error("="*80)
-        logger.error("Incremental backup tuvo errores")
-        logger.error("="*80)
-        raise RuntimeError("Incremental backup failed processing one or more records")
-
-    # Resultado
-    status = "NO_OBJECTS" if not jobs_created else "BATCH_SUBMITTED"
+    # Partial batch response (prevents reprocessing successful messages)
+    failures = list({mid for mid in failed_message_ids if mid})
+    if failures:
+        logger.warning(f"Mensajes con error (parcial): {len(failures)}")
     
+    status = "NO_OBJECTS" if not jobs_created else "BATCH_SUBMITTED"
     logger.info("="*80)
-    logger.info(f"Proceso completado: {len(jobs_created)} jobs creados")
+    logger.info(f"Proceso completado: {len(jobs_created)} jobs creados; fallidos={len(failures)}")
     logger.info("="*80)
 
-    return {
-        "status": status,
-        "jobs": jobs_created,
-        "backup_bucket": BACKUP_BUCKET,
-        "total_objects": sum(j["objects"] for j in jobs_created)
-    }
+    # SQS partial-batch contract
+    try:
+        return {
+            "batchItemFailures": [{"itemIdentifier": mid} for mid in failures]
+        }
+    except Exception as e:
+        # Blind fallback to avoid invocation error surfacing to Lambda metric
+        logger.error(f"Fallo al construir respuesta parcial: {e}")
+        return {"batchItemFailures": []}

@@ -43,7 +43,7 @@ schedule_expressions = {
   # CRÍTICO: RPO 12 horas
   # ========================================================================
   Critico = {
-    incremental = "rate(6 hours)"     # Cada 12h
+    incremental = "rate(12 hours)"    # Cada 12h
     sweep       = "rate(7 days)"      # Full semanal
     grandfather = "cron(0 3 1 * ? *)" # Full mensual (1er día, 3 AM UTC)
   }
@@ -253,6 +253,5 @@ require_mfa_for_delete     = false
 # - Paso 1: Ajusta schedule_expressions por criticidad.
 # - Paso 2: Si incremental < 24h -> event-driven (Lambda incremental_backup + SQS). Si no -> manifest diff (filter_inventory + Step Functions).
 # - Paso 3: Se aplican storage class y retenciones segun criticidad (GFS).
-
 
 

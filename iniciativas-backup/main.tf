@@ -23,6 +23,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.4"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   # Descomentar para usar remote state en S3
@@ -234,6 +238,24 @@ output "validation_commands" {
   4. Revisar AWS Cost Explorer después de 7 días
   
   EOT
+}
+
+// ============================================================================
+// Destroy-time cleanup: remove S3 Inventory + S3→SQS notifications from sources
+// ============================================================================
+
+resource "null_resource" "cleanup_s3_backup_configs" {
+  triggers = {
+    // Change this value to force re-evaluation; not used at create-time.
+    version = "1"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    # Destroy-time provisioners cannot reference variables/resources. The
+    # script defaults to BackupEnabled=true so we omit args here.
+    command = "python scripts/cleanup_s3_backup_configs.py --yes"
+  }
 }
 
 output "central_bucket_name" {

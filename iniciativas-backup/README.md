@@ -39,6 +39,15 @@ La lógica (Lambdas + Step Functions + EventBridge Scheduler) vive en la misma c
 3) Validar que se crean schedules incrementales y de sweep por criticidad.
 4) Observar logs de Lambdas para la primera corrida: si no hay inventario aún, se usa fallback; después, Inventory toma el control.
 
+## Teardown / Limpieza
+
+- Tras `terraform destroy`, el plan incluye un paso de limpieza que ejecuta `scripts/cleanup_s3_backup_configs.py` y elimina:
+  - Configuraciones de S3 Inventory (`Id=AutoBackupInventory`).
+  - Notificaciones S3→SQS (`Id=BckIncrementalTrigger-SQS`).
+- Ejecución manual (opcional):
+  - `python scripts/cleanup_s3_backup_configs.py --yes`
+  - o con buckets específicos: `python scripts/cleanup_s3_backup_configs.py --bucket <mi-bucket> --yes`
+
 ## Estructura de rutas en el bucket central
 
 - `backup/criticality=<Critico|MenosCritico|NoCritico>/backup_type=<incremental|full>/...`

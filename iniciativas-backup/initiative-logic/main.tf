@@ -333,7 +333,7 @@ resource "aws_iam_role_policy" "batch_job_role_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
+    Statement = concat([
       {
         Sid      = "AllowReadFromSourceBuckets",
         Effect   = "Allow",
@@ -358,7 +358,36 @@ resource "aws_iam_role_policy" "batch_job_role_policy" {
           "${local.central_backup_bucket_arn}/*"
         ]
       }
-    ]
+    ], length(var.source_kms_key_arns) > 0 ? [
+      {
+        Sid    = "AllowKMSToReadSourceObjects",
+        Effect = "Allow",
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:ReEncryptFrom",
+          "kms:GenerateDataKey"
+        ],
+        Resource = var.source_kms_key_arns
+      }
+    ] : [], var.kms_allow_viaservice ? [
+      {
+        Sid    = "AllowKMSDecryptViaS3Service",
+        Effect = "Allow",
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:ReEncryptFrom",
+          "kms:GenerateDataKey"
+        ],
+        Resource = "*",
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" : "s3.${var.aws_region}.amazonaws.com"
+          }
+        }
+      }
+    ] : [])
   })
 }
 
@@ -579,8 +608,8 @@ resource "aws_lambda_function" "incremental_backup" {
   handler          = "lambda_function.lambda_handler"
   runtime          = "python3.11"
   role             = aws_iam_role.incremental_backup.arn
-  memory_size      = 256
-  timeout          = 120
+  memory_size      = 512
+  timeout          = 300
 
   environment {
     variables = merge(
@@ -708,8 +737,8 @@ resource "aws_lambda_event_source_mapping" "sqs_event" {
   function_name    = aws_lambda_function.incremental_backup.function_name
 
   # Optimized batching
-  batch_size                         = 1000
-  maximum_batching_window_in_seconds = 300
+  batch_size                         = 256
+  maximum_batching_window_in_seconds = 60
 
   # Report per-item failures back to SQS for retries
   function_response_types = ["ReportBatchItemFailures"]
@@ -1049,6 +1078,12 @@ resource "aws_iam_role_policy" "scheduler_policy" {
         Effect   = "Allow",
         Action   = ["lambda:InvokeFunction"],
         Resource = aws_lambda_function.backup_configurations.arn
+      },
+      {
+        Sid      = "AllowInvokeFindResourcesLambda",
+        Effect   = "Allow",
+        Action   = ["lambda:InvokeFunction"],
+        Resource = aws_lambda_function.find_resources.arn
       },
       {
         Sid      = "AllowPassRoleToSFN",
@@ -1394,6 +1429,26 @@ resource "aws_scheduler_schedule" "backup_configurations_once" {
   }
 }
 
+resource "aws_scheduler_schedule" "find_resources_once" {
+  name        = "${local.prefijo_recursos}-find-resources-once-${local.sufijo_recursos}"
+  group_name  = aws_scheduler_schedule_group.backup_schedules.name
+  description = "One-shot run after deploy to configure S3→SQS notifications"
+
+  flexible_time_window { mode = "OFF" }
+  schedule_expression = "at(${local.backup_configurations_once_time})"
+
+  target {
+    arn      = aws_lambda_function.find_resources.arn
+    role_arn = aws_iam_role.scheduler_execution_role.arn
+    input    = jsonencode({})
+  }
+
+  lifecycle {
+    # Evitar drift por cambio de timestamp en futuros plans
+    ignore_changes = [schedule_expression]
+  }
+}
+
 output "backup_configurations_lambda_arn" {
   description = "ARN de la Lambda de backup de configuraciones"
   value       = aws_lambda_function.backup_configurations.arn
@@ -1403,5 +1458,4 @@ output "backup_frequency_configuration" {
   description = "Frecuencias configuradas para incrementales"
   value       = local.backup_frequencies
 }
-
 
