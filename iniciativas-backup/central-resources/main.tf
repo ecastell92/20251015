@@ -26,7 +26,7 @@ data "aws_caller_identity" "current" {}
 locals {
   resource_prefix            = "${var.tenant}-${lower(var.environment)}"
   resource_suffix            = "${var.iniciativa}-${var.sufijo_recursos}"
-  central_backup_bucket_name = "${local.resource_prefix}-central-bck-${local.resource_suffix}-notinet"
+  central_backup_bucket_name = "${local.resource_prefix}-central-bcks-${local.resource_suffix}-notinet"
   central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
 
   common_tags = {

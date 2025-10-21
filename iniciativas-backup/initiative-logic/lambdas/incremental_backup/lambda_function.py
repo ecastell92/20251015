@@ -67,6 +67,36 @@ bucket_criticality_cache: Dict[str, str] = {}
 
 
 # ============================================================================
+# CHECKPOINTS (incremental windows)
+# ============================================================================
+
+def _window_checkpoint_key(source_bucket: str, criticality: str, window_label: str) -> str:
+    return f"checkpoints/incremental/{source_bucket}/{criticality}/{window_label}.marker"
+
+
+def has_window_been_processed(backup_bucket: str, source_bucket: str, criticality: str, window_label: str) -> bool:
+    """Returns True if a checkpoint marker exists for this (bucket, criticality, window)."""
+    key = _window_checkpoint_key(source_bucket, criticality, window_label)
+    try:
+        s3_client.head_object(Bucket=backup_bucket, Key=key)
+        return True
+    except s3_client.exceptions.NoSuchKey:
+        return False
+    except Exception:
+        return False
+
+
+def write_window_checkpoint(backup_bucket: str, source_bucket: str, criticality: str, window_label: str):
+    key = _window_checkpoint_key(source_bucket, criticality, window_label)
+    s3_client.put_object(
+        Bucket=backup_bucket,
+        Key=key,
+        Body=b"processed",
+        ServerSideEncryption="AES256",
+    )
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -329,6 +359,13 @@ def lambda_handler(event, context):
         criticality, source_bucket, window_label = group_key
         window_start = window_metadata[group_key]
 
+        # Skip if this window was already processed (idempotence by window)
+        if has_window_been_processed(BACKUP_BUCKET, source_bucket, criticality, window_label):
+            logger.info(
+                f"Ventana ya procesada anteriormente, saltando: {source_bucket} / {criticality} / {window_label}"
+            )
+            continue
+
         logger.info(f"\n Procesando grupo:")
         logger.info(f"   Bucket: {source_bucket}")
         logger.info(f"   Criticality: {criticality}")
@@ -359,6 +396,12 @@ def lambda_handler(event, context):
                 "window": window_label,
                 "objects": len(object_keys)
             })
+
+            # Mark window as processed (checkpoint) after successful job submission
+            try:
+                write_window_checkpoint(BACKUP_BUCKET, source_bucket, criticality, window_label)
+            except Exception as e:
+                logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
         
         except Exception as exc:
             processing_failed = True
