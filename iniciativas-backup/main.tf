@@ -57,9 +57,8 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  account_id         = data.aws_caller_identity.current.account_id
-  region             = data.aws_region.current.name
-  central_account_id = coalesce(var.central_account_id, var.cuenta, data.aws_caller_identity.current.account_id)
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.name
   # Nombres comunes para recursos locales (usados por planes de AWS Backup)
   prefijo_recursos = "${var.tenant}-${lower(var.environment)}"
   sufijo_recursos  = "${lower(var.iniciativa)}-${var.sufijo_recursos}"
@@ -125,7 +124,6 @@ module "initiative_logic" {
   iniciativa         = var.iniciativa
   environment        = var.environment
   tenant             = var.tenant
-  central_account_id = local.central_account_id
 
   # Referencia al bucket central (output del módulo anterior)
   central_backup_bucket_name = module.central_resources.central_backup_bucket_name

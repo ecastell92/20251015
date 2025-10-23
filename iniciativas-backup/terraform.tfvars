@@ -8,9 +8,6 @@ environment        = "dev"
 tenant             = "00"
 iniciativa         = "mvp"
 cuenta             = "905418243844"
-central_account_id = "905418243844"
-
-
 # Selección de módulos a implementar  
 
 # Desplegar backup S3

@@ -23,11 +23,6 @@ variable "tenant" {
   type        = string
 }
 
-variable "central_account_id" {
-  description = "AWS Account ID de la cuenta central donde reside el bucket de backups"
-  type        = string
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
 # BUCKET CENTRAL
 # ─────────────────────────────────────────────────────────────────────────────
