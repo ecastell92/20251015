@@ -11,8 +11,8 @@ cuenta             = "905418243844"
 # Selección de módulos a implementar  
 
 # Desplegar backup S3
-enable_s3_backups     = false
-enable_central_bucket = false
+enable_s3_backups     = true
+enable_central_bucket = true
 
 # Desplegar backup RDS
 enable_backup_rds = true
@@ -52,7 +52,7 @@ gfs_rules = {
     father_retention_days      = 90
     father_archive_class       = "DEEP_ARCHIVE"
     grandfather_da_days        = 90
-    grandfather_retention_days = 730
+    grandfather_retention_days = 365
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
   MenosCritico = {
@@ -63,7 +63,7 @@ gfs_rules = {
     father_retention_days      = 60
     father_archive_class       = "DEEP_ARCHIVE"
     grandfather_da_days        = 90
-    grandfather_retention_days = 365
+    grandfather_retention_days = 180
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
   NoCritico = {
