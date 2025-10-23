@@ -541,7 +541,7 @@ resource "aws_lambda_function" "find_resources" {
       LOG_LEVEL                        = "INFO"
       SQS_QUEUE_ARN                    = aws_sqs_queue.s3_events_queue.arn
       CENTRAL_BACKUP_BUCKET            = var.central_backup_bucket_name
-      CENTRAL_ACCOUNT_ID               = var.central_account_id
+      CENTRAL_ACCOUNT_ID               = data.aws_caller_identity.current.account_id
       CRITICALITIES_WITH_NOTIFICATIONS = join(",", local.notif_criticalities)
     }
   }

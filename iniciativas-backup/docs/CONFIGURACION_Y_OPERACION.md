@@ -28,7 +28,6 @@ Usa el archivo `terraform.tfvars` (o crea uno nuevo desde `terraform.tfvars.exam
 - `tenant` (string) – identificador corto del tenant. Ej: `"00"`
 - `iniciativa` (string) – nombre corto de la iniciativa. Ej: `"mvp"`
 - `cuenta` (string) – Account ID de despliegue
-- `central_account_id` (string) – Account ID donde vive el bucket central (opcional, por defecto la actual)
 - `central_backup_vault_name` (string) – nombre del AWS Backup Vault (si se usa)
 - `sufijo_recursos` (string) – sufijo para unicidad en nombres
 

@@ -14,7 +14,6 @@ aws_region         = "eu-west-1"
 iniciativa         = "mvp"
 environment        = "dev"
 tenant             = "00"
-central_account_id = "905418243844"
 
 central_backup_bucket_name = "00-dev-s3-bucket-central-bck-001-aws-notinet"
 sufijo_recursos            = "bck-001-aws-notinet"

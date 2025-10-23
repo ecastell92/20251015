@@ -8,8 +8,6 @@ environment        = "dev"           # dev|staging|prod
 tenant             = "00"
 iniciativa         = "mvp"
 cuenta             = "123456789012"
-central_account_id = "123456789012"  # misma cuenta por defecto
-
 central_backup_vault_name = "00-dev-aws-vault-bck-001"
 sufijo_recursos           = "bck-001"
 
