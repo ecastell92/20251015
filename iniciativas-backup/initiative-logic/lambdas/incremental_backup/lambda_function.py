@@ -6,6 +6,7 @@ import uuid
 from urllib.parse import unquote_plus
 from datetime import datetime, timezone
 from typing import Dict, Set, Tuple, Optional, List
+import time
 import io
 import csv
 
@@ -133,6 +134,47 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     return any(object_key.startswith(p) for p in prefixes)
 
 
+def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
+    """Aplica exclusiones (prefijo/sufijo y marcadores de carpeta) e inclusiones por criticidad.
+
+    Nota: esta definición sobrescribe la anterior para permitir exclusiones
+    configurables vía variables de entorno EXCLUDE_KEY_PREFIXES/SUFFIXES.
+    """
+    # Excluir marcadores de carpeta
+    if object_key.endswith('/'):
+        return False
+
+    # Cargar exclusiones desde entorno: JSON (["pfx/"]) o coma-separado
+    def _parse_list(name: str) -> List[str]:
+        raw = os.environ.get(name, '')
+        if not raw:
+            return []
+        try:
+            vals = json.loads(raw)
+            return [v for v in vals if isinstance(v, str)]
+        except Exception:
+            return [s.strip() for s in raw.split(',') if s.strip()]
+
+    ex_prefixes = _parse_list('EXCLUDE_KEY_PREFIXES')
+    ex_suffixes = _parse_list('EXCLUDE_KEY_SUFFIXES')
+
+    # Excluir por prefijo en cualquier segmento del path. Si el valor viene
+    # como 'sparkHistoryLogs/' y el objeto es 'carga1/sparkHistoryLogs/...',
+    # el siguiente chequeo lo filtrará.
+    for p in ex_prefixes:
+        if not p:
+            continue
+        if object_key.startswith(p) or (f"/{p}" in object_key) or (p in object_key):
+            return False
+    if any(object_key.endswith(s) for s in ex_suffixes):
+        return False
+
+    prefixes = ALLOWED_PREFIXES.get(criticality, [])
+    if not prefixes:
+        return True
+    return any(object_key.startswith(p) for p in prefixes)
+
+
 def compute_window_start(event_time: datetime, freq_hours: int) -> datetime:
     """Calcula el inicio de la ventana temporal según frecuencia."""
     window_hour = (event_time.hour // freq_hours) * freq_hours
@@ -188,10 +230,15 @@ def upload_manifest(
         },
     )
 
-    # Obtener ETag del put para evitar inconsistencias; mantener comillas tal como retorna S3
+    # Obtener ETag del put para evitar inconsistencias
     etag = put_resp.get("ETag")
     if not etag:
         etag = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)["ETag"]
+
+    # S3 Batch normalmente requiere el ETag sin comillas dobles
+    if etag:
+        etag = etag.strip('"')
+        
 
     logger.info(f"Manifiesto creado con {len(object_keys)} objetos")
 
@@ -241,46 +288,70 @@ def submit_batch_job(
     logger.info(f"   Window: {window_label}")
     logger.info(f"   Manifest: s3://{BACKUP_BUCKET}/{manifest_key}")
 
+    # Intentar con dos variantes de ETag: sin comillas (default) y con comillas (fallback)
+    etag_variants = [manifest_etag]
     try:
-        response = s3_control.create_job(
-            AccountId=ACCOUNT_ID,
-            ConfirmationRequired=False,
-            Operation={
-                "S3PutObjectCopy": {
-                    "TargetResource": BACKUP_BUCKET_ARN,
-                    "TargetKeyPrefix": data_prefix,
-                }
-            },
-            Report={
-                "Enabled": True,
-                "Bucket": BACKUP_BUCKET_ARN,
-                "Prefix": reports_prefix,
-                "Format": "Report_CSV_20180820",
-                "ReportScope": "AllTasks",
-            },
-            Manifest={
-                "Spec": {
-                    "Format": "S3BatchOperations_CSV_20180820",
-                    "Fields": ["Bucket", "Key"],
-                },
-                "Location": {
-                    "ObjectArn": manifest_arn,
-                    "ETag": manifest_etag,
-                },
-            },
-            Description=description,
-            RoleArn=BATCH_ROLE_ARN,
-            Priority=10,
-            ClientRequestToken=str(uuid.uuid4()),
-        )
+        if not manifest_etag.startswith('"'):
+            etag_variants.append(f'"{manifest_etag}"')
+        else:
+            etag_variants.append(manifest_etag.strip('"'))
+    except Exception:
+        pass
 
-        job_id = response["JobId"]
-        logger.info(f"S3 Batch Job creado: {job_id}")
-        return job_id
-    
-    except Exception as e:
-        logger.error(f"Error creando Batch Job: {e}", exc_info=True)
-        raise
+    last_err: Optional[Exception] = None
+    for idx, etag_try in enumerate(etag_variants):
+        try:
+            logger.info(f"Intento create_job con ETag variante {idx+1}/{len(etag_variants)}: {etag_try}")
+            response = s3_control.create_job(
+                AccountId=ACCOUNT_ID,
+                ConfirmationRequired=False,
+                Operation={
+                    "S3PutObjectCopy": {
+                        "TargetResource": BACKUP_BUCKET_ARN,
+                        "TargetKeyPrefix": data_prefix,
+                    }
+                },
+                Report={
+                    "Enabled": True,
+                    "Bucket": BACKUP_BUCKET_ARN,
+                    "Prefix": reports_prefix,
+                    "Format": "Report_CSV_20180820",
+                    "ReportScope": "AllTasks",
+                },
+                Manifest={
+                    "Spec": {
+                        "Format": "S3BatchOperations_CSV_20180820",
+                        "Fields": ["Bucket", "Key"],
+                    },
+                    "Location": {
+                        "ObjectArn": manifest_arn,
+                        "ETag": etag_try,
+                    },
+                },
+                Description=description,
+                RoleArn=BATCH_ROLE_ARN,
+                Priority=10,
+                ClientRequestToken=str(uuid.uuid4()),
+            )
+
+            job_id = response["JobId"]
+            logger.info(f"S3 Batch Job creado: {job_id}")
+            return job_id
+        except Exception as e:
+            last_err = e
+            msg = str(e)
+            # Reintentar si parece un problema de ETag
+            if "Etag mismatch" in msg or "ETag" in msg:
+                logger.warning(f"Fallo create_job por ETag ('{msg[:120]}...'), reintentando con variante alternativa en 1s")
+                time.sleep(1)
+                continue
+            else:
+                logger.error(f"Error creando Batch Job: {e}", exc_info=True)
+                raise
+
+    # Si agotamos variantes, propagar último error
+    logger.error(f"Fallo creando Batch Job tras probar variantes de ETag: {last_err}")
+    raise last_err
 
 
 # ============================================================================

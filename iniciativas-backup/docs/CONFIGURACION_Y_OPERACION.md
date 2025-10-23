@@ -104,6 +104,37 @@ python scripts/restore_configurations.py \
 - Dry‑run: omite `--yes`.
 - Servicios soportados: `iam,s3,eventbridge,stepfunctions,glue,athena,lambda,dynamodb,rds`.
 
+### 6.1 Restauración fácil (sin código)
+
+Para hacerlo aún más simple, hay dos “wrappers” interactivos que preguntan y ejecutan la restauración por ti:
+
+- PowerShell (Windows):
+  - `pwsh -File scripts/restore_easy.ps1`
+  - Detecta `bucket` y `región` desde `terraform output` cuando es posible.
+  - Permite elegir `criticality`, `services` o `--all`, y si usar `--latest` o un `--timestamp`.
+  - Confirmación final y ejecución con/ sin `--yes`.
+
+- Bash (Linux/macOS):
+  - `bash scripts/restore_easy.sh`
+  - Mismo flujo básico con preguntas y valores por defecto.
+
+### 6.2 Restauración de DATOS (objetos S3)
+
+Los scripts anteriores restauran CONFIGURACIONES. Para restaurar DATOS, usa los wrappers de la Lambda `restore_from_backup`:
+
+- PowerShell:
+  - `pwsh -File scripts/restore_data_easy.ps1`
+  - Pregunta bucket origen (destino de la restauración), criticidad, tipo (incremental/full), generación, último manifest o fecha/hora, prefijo, y si aplicar (o dry‑run).
+
+- Bash:
+  - `bash scripts/restore_data_easy.sh`
+  - Mismo flujo interactivo. Construye el payload y ejecuta `aws lambda invoke`.
+
+Notas:
+- Si eliges “último manifest”, la función busca automáticamente el más reciente para la combinación indicada.
+- Usa “prefijo” para acotar (ej. `output/`).
+- Los wrappers realizan SIEMPRE una previsualización (dry‑run) primero y muestran `manifest_key` y `data_prefix`; si confirmas, ejecutan la copia real con `dry_run=false`.
+
 ## 7. Limpieza y destroy
 
 Al ejecutar `terraform destroy`, se invoca `scripts/cleanup_s3_backup_configs.py` para eliminar Inventory y notificaciones S3→SQS de los buckets `BackupEnabled=true`.
@@ -125,4 +156,3 @@ python scripts/cleanup_s3_backup_configs.py --profile <perfil> --region <region>
 - `scripts/s3_batch_report_summary.py` – resume el último CSV de reportes de S3 Batch.
 - `scripts/restore_configurations.py` – restauración por servicio o `--all` (dry‑run por defecto).
 - `scripts/cleanup_s3_backup_configs.py` – limpia Inventory y notificaciones S3→SQS.
-

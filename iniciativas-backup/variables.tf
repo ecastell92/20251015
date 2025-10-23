@@ -385,3 +385,16 @@ variable "cleanup_configurations_days" {
   type        = number
   default     = 90
 }
+
+# AWS Backup (RDS/DynamoDB)
+variable "enable_backup_rds" {
+  description = "Habilitar planes de AWS Backup para RDS (por tags)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_backup_dynamodb" {
+  description = "Habilitar planes de AWS Backup para DynamoDB (por tags)"
+  type        = bool
+  default     = false
+}

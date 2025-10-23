@@ -32,11 +32,19 @@ SERVICES = [
     "s3", "eventbridge", "stepfunctions", "glue", "athena", "lambda", "iam", "dynamodb", "rds"
 ]
 
+# Some services are stored under different service folder names in the snapshot
+# paths. This map translates the CLI service name -> stored folder name.
+SERVICE_ALIAS = {
+    "s3": "s3_buckets",
+    "lambda": "lambda_functions",
+}
+
 
 def build_prefix(initiative: str, criticality: str, service: str) -> str:
+    stored = SERVICE_ALIAS.get(service, service)
     return (
         f"backup/criticality={criticality}/backup_type=configurations/"
-        f"initiative={initiative}/service={service}/"
+        f"initiative={initiative}/service={stored}/"
     )
 
 

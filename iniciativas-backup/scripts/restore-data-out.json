@@ -1,0 +1,1 @@
+{"errorMessage": "No se encontro ningun manifest para los parametros indicados", "errorType": "RuntimeError", "requestId": "5c31ca6d-af6a-42ba-af8b-ccecfb79c36d", "stackTrace": ["  File \"/var/task/lambda_function.py\", line 160, in lambda_handler\n    raise RuntimeError(\"No se encontro ningun manifest para los parametros indicados\")\n"]}

@@ -250,6 +250,105 @@ output "validation_commands" {
 }
 
 // ============================================================================
+// AWS Backup Plans for RDS and DynamoDB (by tags, similar a GFS de S3)
+// ============================================================================
+
+locals {
+  backup_plans_enabled = var.enable_backup_rds || var.enable_backup_dynamodb
+  gfs_enabled_by_crit  = { for k, v in var.gfs_rules : k => v if v.enable }
+}
+
+resource "aws_iam_role" "backup_service" {
+  count = local.backup_plans_enabled ? 1 : 0
+  name  = "${local.prefijo_recursos}-aws-backup-role-${local.sufijo_recursos}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = { Service = "backup.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "backup_service_attach_backup" {
+  count      = local.backup_plans_enabled ? 1 : 0
+  role       = aws_iam_role.backup_service[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
+}
+
+resource "aws_iam_role_policy_attachment" "backup_service_attach_restore" {
+  count      = local.backup_plans_enabled ? 1 : 0
+  role       = aws_iam_role.backup_service[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores"
+}
+
+resource "aws_backup_plan" "gfs" {
+  for_each = local.backup_plans_enabled ? local.gfs_enabled_by_crit : {}
+
+  name = "${local.prefijo_recursos}-plan-${lower(each.key)}-${local.sufijo_recursos}"
+
+  rule {
+    rule_name         = "daily-son-${each.key}"
+    target_vault_name = var.central_backup_vault_name
+    schedule          = "cron(0 2 * * ? *)" // diario 02:00 UTC
+    lifecycle {
+      delete_after = each.value.son_retention_days
+    }
+  }
+
+  rule {
+    rule_name         = "weekly-father-${each.key}"
+    target_vault_name = var.central_backup_vault_name
+    schedule          = "cron(0 3 ? * SUN *)" // semanal domingo 03:00 UTC
+    lifecycle {
+      delete_after = each.value.father_retention_days
+    }
+  }
+
+  dynamic "rule" {
+    for_each = each.value.grandfather_retention_days > 0 ? [1] : []
+    content {
+      rule_name         = "monthly-grandfather-${each.key}"
+      target_vault_name = var.central_backup_vault_name
+      schedule          = "cron(0 4 1 * ? *)" // mensual día 1 04:00 UTC
+      lifecycle {
+        delete_after = each.value.grandfather_retention_days
+      }
+    }
+  }
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_backup_selection" "gfs" {
+  for_each = local.backup_plans_enabled ? local.gfs_enabled_by_crit : {}
+
+  name     = "${local.prefijo_recursos}-sel-${lower(each.key)}-${local.sufijo_recursos}"
+  plan_id  = aws_backup_plan.gfs[each.key].id
+  iam_role_arn = aws_iam_role.backup_service[0].arn
+
+  selection_tag {
+    type  = "STRINGEQUALS"
+    key   = "BackupEnabled"
+    value = "true"
+  }
+
+  selection_tag {
+    type  = "STRINGEQUALS"
+    key   = var.criticality_tag
+    value = each.key
+  }
+}
+
+// ============================================================================
 // Destroy-time cleanup: remove S3 Inventory + S3→SQS notifications from sources
 // ============================================================================
 

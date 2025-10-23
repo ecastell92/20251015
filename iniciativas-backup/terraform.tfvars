@@ -69,10 +69,10 @@ gfs_rules = {
 }
 
 ## 5) Incrementales – Filtros y controles
-criticality_tag            = "BackupCriticality"
-allowed_prefixes           = { Critico = [], MenosCritico = [], NoCritico = [] }
-exclude_key_prefixes       = ["temporary/", "sparkHistoryLogs/"]
-exclude_key_suffixes       = [".inprogress", "/"]
+criticality_tag             = "BackupCriticality"
+allowed_prefixes            = { Critico = [], MenosCritico = [], NoCritico = [] }
+exclude_key_prefixes        = ["temporary/", "sparkHistoryLogs/"]
+exclude_key_suffixes        = [".inprogress", "/"]
 force_full_on_first_run     = false
 fallback_max_objects        = 0
 fallback_time_limit_seconds = 0
@@ -91,9 +91,9 @@ cleanup_manifests_temp_days   = 7
 cleanup_configurations_days   = 90
 
 ## 8) Backup de configuraciones – toggles
-backup_config_log_level        = "INFO"
-backup_config_tag_filter_key   = "BackupEnabled"
-backup_config_tag_filter_value = "true"
+backup_config_log_level             = "INFO"
+backup_config_tag_filter_key        = "BackupEnabled"
+backup_config_tag_filter_value      = "true"
 backup_config_include_glue          = true
 backup_config_include_athena        = true
 backup_config_include_lambda        = true
