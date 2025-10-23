@@ -1,0 +1,27 @@
+# Terraform local artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+
+# Keep terraform.tfvars tracked (do not ignore it)
+# Local overrides you don't want in VCS
+*.auto.tfvars
+
+# Lambda build artifacts
+initiative-logic/build/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS / IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+*.tmp
+
