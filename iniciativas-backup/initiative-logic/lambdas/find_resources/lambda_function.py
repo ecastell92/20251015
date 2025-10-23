@@ -12,6 +12,7 @@ logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 s3_client = boto3.client("s3")
 resource_tag_client = boto3.client("resourcegroupstaggingapi")
+sts_client = boto3.client("sts")
 
 # Constantes
 BACKUP_TAG_KEY = "BackupEnabled"
@@ -34,9 +35,9 @@ INVENTORY_ID = "AutoBackupInventory"
 # ============================================================================
 
 INVENTORY_FREQUENCIES = {
-    "Critico": "Weekly",     
+    "Critico": "Weekly",
     "MenosCritico": "Weekly",
-    "NoCritico": "Weekly"   
+    "NoCritico": "Weekly"
 }
 
 # Criticidades que requieren notificaciones SQS (solo las que tienen incrementales)
@@ -46,6 +47,34 @@ if _crit_env:
     CRITICALITIES_WITH_NOTIFICATIONS = [c.strip() for c in _crit_env.split(",") if c.strip()]
 else:
     CRITICALITIES_WITH_NOTIFICATIONS = ["Critico"]
+
+
+# ============================================================================
+# ACCOUNT RESOLUTION (Single-account friendly)
+# ============================================================================
+
+def resolve_central_account_id() -> str:
+    """Obtiene el Account ID donde vive el bucket central."""
+
+    env_value = os.environ.get("CENTRAL_ACCOUNT_ID")
+    if env_value:
+        logger.debug("Usando CENTRAL_ACCOUNT_ID proporcionado por entorno")
+        return env_value
+
+    logger.info(
+        "CENTRAL_ACCOUNT_ID no definido; resolviendo via STS (despliegue single-account)"
+    )
+
+    try:
+        identity = sts_client.get_caller_identity()
+        account_id = identity.get("Account")
+        if not account_id:
+            raise RuntimeError("STS no devolvió Account ID")
+        logger.debug(f"Account ID resuelto via STS: {account_id}")
+        return account_id
+    except ClientError as e:
+        logger.error("No se pudo obtener Account ID via STS", exc_info=True)
+        raise
 
 
 # ============================================================================
@@ -315,11 +344,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[s
     # Validar variables de entorno
     try:
         central_bucket = os.environ["CENTRAL_BACKUP_BUCKET"]
-        central_account_id = os.environ["CENTRAL_ACCOUNT_ID"]
         sqs_queue_arn = os.environ["SQS_QUEUE_ARN"]
     except KeyError as e:
         logger.error(f"Variable de entorno faltante: {e}")
         raise
+
+    central_account_id = resolve_central_account_id()
 
     logger.info(f"Bucket central: {central_bucket}")
     logger.info(f"Account ID: {central_account_id}")
@@ -407,3 +437,4 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[s
         logger.warning(f"Algunos buckets tuvieron errores: {errors}")
 
     return result
+

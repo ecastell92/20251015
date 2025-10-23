@@ -2,7 +2,7 @@
 // Initiative Logic Project - CORREGIDO
 // ============================================================================
 // CAMBIOS:
-// 1. CENTRAL_ACCOUNT_ID habilitada en find_resources
+// 1. Resolución automática del Account ID para despliegues single-account
 // 2. Variables de frecuencia para incremental_backup
 // 3. Frecuencias extraídas desde schedule_expressions
 // ============================================================================
@@ -541,7 +541,6 @@ resource "aws_lambda_function" "find_resources" {
       LOG_LEVEL                        = "INFO"
       SQS_QUEUE_ARN                    = aws_sqs_queue.s3_events_queue.arn
       CENTRAL_BACKUP_BUCKET            = var.central_backup_bucket_name
-      CENTRAL_ACCOUNT_ID               = data.aws_caller_identity.current.account_id
       CRITICALITIES_WITH_NOTIFICATIONS = join(",", local.notif_criticalities)
     }
   }
