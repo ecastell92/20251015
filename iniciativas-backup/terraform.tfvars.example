@@ -1,20 +1,19 @@
-## ============================================================================
-## Configuracion principal (cuaderno por secciones)
-## ============================================================================
+# ============================================================================
+# Ejemplo completo de configuración (terraform.tfvars)
+# ============================================================================
 
-## 1) Basicos
+# --- Básicos ---
 aws_region         = "eu-west-1"
-environment        = "dev"
+environment        = "dev"           # dev|staging|prod
 tenant             = "00"
 iniciativa         = "mvp"
-cuenta             = "905418243844"
-central_account_id = "905418243844"
+cuenta             = "123456789012"
+central_account_id = "123456789012"  # misma cuenta por defecto
 
-## 2) Identificadores
-central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
-sufijo_recursos           = "bck-001-aws"
+central_backup_vault_name = "00-dev-aws-vault-bck-001"
+sufijo_recursos           = "bck-001"
 
-## 3) Schedules por criticidad
+# --- Schedules por criticidad ---
 schedule_expressions = {
   Critico = {
     incremental = "rate(12 hours)"
@@ -31,25 +30,25 @@ schedule_expressions = {
   }
 }
 
-## 4) GFS – Retencion por criticidad (datos)
+# --- GFS por criticidad ---
 gfs_rules = {
   Critico = {
     enable                     = true
     start_storage_class        = "GLACIER_IR"
-    son_retention_days         = 21
+    son_retention_days         = 14
     father_da_days             = 0
-    father_retention_days      = 90
+    father_retention_days      = 28
     father_archive_class       = "DEEP_ARCHIVE"
     grandfather_da_days        = 90
-    grandfather_retention_days = 730
+    grandfather_retention_days = 365
     grandfather_archive_class  = "DEEP_ARCHIVE"
   }
   MenosCritico = {
     enable                     = true
     start_storage_class        = "GLACIER_IR"
-    son_retention_days         = 14
+    son_retention_days         = 7
     father_da_days             = 0
-    father_retention_days      = 60
+    father_retention_days      = 28
     father_archive_class       = "DEEP_ARCHIVE"
     grandfather_da_days        = 90
     grandfather_retention_days = 365
@@ -68,29 +67,29 @@ gfs_rules = {
   }
 }
 
-## 5) Incrementales – Filtros y controles
-criticality_tag            = "BackupCriticality"
-allowed_prefixes           = { Critico = [], MenosCritico = [], NoCritico = [] }
-exclude_key_prefixes       = ["temporary/", "sparkHistoryLogs/"]
-exclude_key_suffixes       = [".inprogress", "/"]
+# --- Filtros y controles para incrementales ---
+criticality_tag        = "BackupCriticality"
+allowed_prefixes       = { Critico = [], MenosCritico = [], NoCritico = [] }
+exclude_key_prefixes   = ["temporary/", "sparkHistoryLogs/"]
+exclude_key_suffixes   = [".inprogress", "/"]
 force_full_on_first_run     = false
 fallback_max_objects        = 0
 fallback_time_limit_seconds = 0
 disable_window_checkpoint   = true
 incremental_log_level       = "INFO"
 
-## 6) KMS en origen
+# --- KMS en origen ---
 kms_allow_viaservice = true
-source_kms_key_arns  = []
+source_kms_key_arns  = []  # o lista de ARNs si quieres restringir
 
-## 7) Limpieza operacional (lifecycle)
+# --- Limpieza operacional (Lifecycle) ---
 cleanup_inventory_source_days = 7
 cleanup_batch_reports_days    = 7
 cleanup_checkpoints_days      = 7
 cleanup_manifests_temp_days   = 7
 cleanup_configurations_days   = 90
 
-## 8) Backup de configuraciones – toggles
+# --- Backup de configuraciones (toggles) ---
 backup_config_log_level        = "INFO"
 backup_config_tag_filter_key   = "BackupEnabled"
 backup_config_tag_filter_value = "true"
@@ -103,7 +102,7 @@ backup_config_include_eventbridge   = true
 backup_config_include_dynamodb      = false
 backup_config_include_rds           = false
 
-## 9) Seguridad
+# --- Seguridad (opcionales) ---
 min_deep_archive_offset_days = 90
 enable_object_lock           = false
 object_lock_mode             = "COMPLIANCE"
@@ -112,12 +111,11 @@ deny_delete_enabled          = false
 allow_delete_principals      = []
 require_mfa_for_delete       = false
 
-## 10) Tags globales
+# --- Tags globales ---
 backup_tags = {
   ManagedBy    = "Terraform"
-  Project      = "DataPlatformBackup"
+  Project      = "S3BackupOptimized"
   Environment  = "dev"
   Initiative   = "mvp"
-  CostStrategy = "optimized"
 }
 

@@ -345,3 +345,43 @@ variable "disable_window_checkpoint" {
   type        = bool
   default     = true
 }
+
+# Prefijos/sufijos a excluir en incrementales (opcional)
+variable "exclude_key_prefixes" {
+  description = "Prefijos a excluir en incrementales (p. ej. temporales)"
+  type        = list(string)
+  default     = ["temporary/", "sparkHistoryLogs/"]
+}
+
+variable "exclude_key_suffixes" {
+  description = "Sufijos a excluir en incrementales (p. ej. .inprogress o marcadores de carpeta)"
+  type        = list(string)
+  default     = [".inprogress", "/"]
+}
+
+# Nivel de log para Lambda incremental
+variable "incremental_log_level" {
+  description = "Nivel de log para la Lambda incremental (DEBUG, INFO, WARNING, ERROR)"
+  type        = string
+  default     = "INFO"
+}
+
+# KMS en origen
+variable "source_kms_key_arns" {
+  description = "Lista de ARNs de CMKs usadas por buckets origen para permitir kms:Decrypt en S3 Batch"
+  type        = list(string)
+  default     = []
+}
+
+variable "kms_allow_viaservice" {
+  description = "Permitir kms:Decrypt vía condición kms:ViaService=s3.<region>.amazonaws.com"
+  type        = bool
+  default     = true
+}
+
+# Retención de configuraciones (backup_type=configurations)
+variable "cleanup_configurations_days" {
+  description = "Dias para expirar JSON de configuraciones (backup_type=configurations)"
+  type        = number
+  default     = 90
+}

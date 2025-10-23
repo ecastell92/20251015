@@ -636,6 +636,8 @@ resource "aws_lambda_function" "incremental_backup" {
         INICIATIVA                = var.iniciativa
         ALLOWED_PREFIXES          = jsonencode(var.allowed_prefixes)
         CRITICALITY_TAG_KEY       = var.criticality_tag
+        EXCLUDE_KEY_PREFIXES      = jsonencode(var.exclude_key_prefixes)
+        EXCLUDE_KEY_SUFFIXES      = jsonencode(var.exclude_key_suffixes)
         GENERATION_INCREMENTAL    = "son"
         ACCOUNT_ID                = data.aws_caller_identity.current.account_id
         BATCH_ROLE_ARN            = aws_iam_role.batch_job_role.arn

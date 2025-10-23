@@ -92,6 +92,7 @@ module "central_resources" {
   cleanup_batch_reports_days    = var.cleanup_batch_reports_days
   cleanup_checkpoints_days      = var.cleanup_checkpoints_days
   cleanup_manifests_temp_days   = var.cleanup_manifests_temp_days
+  cleanup_configurations_days   = var.cleanup_configurations_days
 
   # Seguridad (opcional)
   enable_object_lock         = var.enable_object_lock
@@ -135,6 +136,14 @@ module "initiative_logic" {
   force_full_on_first_run     = var.force_full_on_first_run
   fallback_max_objects        = var.fallback_max_objects
   fallback_time_limit_seconds = var.fallback_time_limit_seconds
+
+  # Controles adicionales de incremental
+  incremental_log_level      = var.incremental_log_level
+  disable_window_checkpoint  = var.disable_window_checkpoint
+  exclude_key_prefixes       = var.exclude_key_prefixes
+  exclude_key_suffixes       = var.exclude_key_suffixes
+  source_kms_key_arns        = var.source_kms_key_arns
+  kms_allow_viaservice       = var.kms_allow_viaservice
 
   # Tags para cost allocation
   backup_tags = var.backup_tags
