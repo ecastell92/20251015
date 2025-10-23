@@ -13,9 +13,7 @@ terraform {
   required_version = ">= 1.4.0"
 }
 
-provider "aws" {
-  region = var.aws_region
-}
+## Inherit AWS provider from root module
 
 data "aws_caller_identity" "current" {}
 
@@ -43,6 +41,7 @@ locals {
 # ============================================================================
 
 resource "aws_s3_bucket" "central_backup" {
+  count               = var.enable_central_bucket ? 1 : 0
   bucket              = local.central_backup_bucket_name
   force_destroy       = true
   object_lock_enabled = var.enable_object_lock
@@ -55,7 +54,8 @@ resource "aws_s3_bucket" "central_backup" {
 # ============================================================================
 
 resource "aws_s3_bucket_public_access_block" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -64,7 +64,8 @@ resource "aws_s3_bucket_public_access_block" "central_backup" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
@@ -72,7 +73,8 @@ resource "aws_s3_bucket_ownership_controls" "central_backup" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -87,7 +89,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "central_backup" {
 # ============================================================================
 
 resource "aws_s3_bucket_versioning" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   versioning_configuration {
     status = "Suspended" # CAMBIADO: de "Enabled" a "Suspended" para ahorrar
@@ -99,9 +102,9 @@ resource "aws_s3_bucket_versioning" "central_backup" {
 # ============================================================================
 
 resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
-  count = var.enable_object_lock && var.object_lock_retention_days > 0 ? 1 : 0
+  count = var.enable_central_bucket && var.enable_object_lock && var.object_lock_retention_days > 0 ? 1 : 0
 
-  bucket = aws_s3_bucket.central_backup.id
+  bucket = aws_s3_bucket.central_backup[0].id
 
   rule {
     default_retention {
@@ -116,7 +119,8 @@ resource "aws_s3_bucket_object_lock_configuration" "central_backup" {
 # ============================================================================
 
 resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   # ─────────────────────────────────────────────────────────────────────────
   # REGLAS GFS (Grandfather-Father-Son)
@@ -282,20 +286,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
     expiration { days = var.cleanup_batch_reports_days }
   }
 
-  # Configuraciones (backup_type=configurations) - configurable por criticidad
-  dynamic "rule" {
-    for_each = { for k, v in var.gfs_rules : k => v if v.enable }
-    content {
-      id     = "cleanup-configurations-${rule.key}"
-      status = "Enabled"
-      filter {
-        prefix = "backup/criticality=${rule.key}/backup_type=configurations/"
-      }
-      expiration { days = var.cleanup_configurations_days }
+  # Configuraciones (top-level) - una única regla
+  rule {
+    id     = "cleanup-configurations"
+    status = "Enabled"
+    filter {
+      prefix = "backup/configurations/"
     }
+    expiration { days = var.cleanup_configurations_days }
   }
 
-  depends_on = [aws_s3_bucket_versioning.central_backup]
+  # Versioning is optional for lifecycle; explicit dependency not required
 }
 
 # ============================================================================
@@ -303,7 +304,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "central_backup" {
 # ============================================================================
 
 resource "aws_s3_bucket_policy" "central_backup" {
-  bucket = aws_s3_bucket.central_backup.id
+  count  = var.enable_central_bucket ? 1 : 0
+  bucket = aws_s3_bucket.central_backup[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -319,7 +321,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             "s3:GetBucketPolicy",
             "s3:PutBucketPolicy"
           ]
-          Resource = aws_s3_bucket.central_backup.arn
+          Resource = aws_s3_bucket.central_backup[0].arn
         },
         {
           Sid    = "AllowS3InventoryReports"
@@ -328,7 +330,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             Service = "s3.amazonaws.com"
           }
           Action   = "s3:PutObject"
-          Resource = "${aws_s3_bucket.central_backup.arn}/inventory-source/*"
+          Resource = "${aws_s3_bucket.central_backup[0].arn}/inventory-source/*"
           Condition = {
             StringEquals = {
               "aws:SourceAccount" = data.aws_caller_identity.current.account_id
@@ -349,7 +351,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             "s3:GetBucketAcl",
             "s3:GetBucketLocation"
           ]
-          Resource = aws_s3_bucket.central_backup.arn
+          Resource = aws_s3_bucket.central_backup[0].arn
         },
         {
           Sid    = "AllowWorkerRolesObjectAccess"
@@ -362,7 +364,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             "s3:GetObject",
             "s3:DeleteObject"
           ]
-          Resource = "${aws_s3_bucket.central_backup.arn}/*"
+          Resource = "${aws_s3_bucket.central_backup[0].arn}/*"
         },
         {
           Sid    = "AllowWorkerRolesListBucket"
@@ -371,7 +373,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
           }
           Action   = "s3:ListBucket"
-          Resource = aws_s3_bucket.central_backup.arn
+          Resource = aws_s3_bucket.central_backup[0].arn
         },
         {
           Sid    = "AllowBatchOperationsObjectAccess"
@@ -383,7 +385,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             "s3:GetObject",
             "s3:PutObject"
           ]
-          Resource = "${aws_s3_bucket.central_backup.arn}/*"
+          Resource = "${aws_s3_bucket.central_backup[0].arn}/*"
           Condition = {
             StringEquals = {
               "aws:SourceAccount" = data.aws_caller_identity.current.account_id
@@ -397,7 +399,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             Service = "batchoperations.s3.amazonaws.com"
           }
           Action   = "s3:ListBucket"
-          Resource = aws_s3_bucket.central_backup.arn
+          Resource = aws_s3_bucket.central_backup[0].arn
           Condition = {
             StringEquals = {
               "aws:SourceAccount" = data.aws_caller_identity.current.account_id
@@ -420,7 +422,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
               "s3:DeleteObjectVersion",
               "s3:AbortMultipartUpload"
             ]
-            Resource = "${aws_s3_bucket.central_backup.arn}/*"
+            Resource = "${aws_s3_bucket.central_backup[0].arn}/*"
             Condition = {
               StringNotEquals = {
                 "aws:PrincipalArn" = var.allow_delete_principals
@@ -439,7 +441,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
               "s3:DeleteObjectVersion",
               "s3:AbortMultipartUpload"
             ]
-            Resource = "${aws_s3_bucket.central_backup.arn}/*"
+            Resource = "${aws_s3_bucket.central_backup[0].arn}/*"
           }
         ]
       ) : [],
@@ -456,7 +458,7 @@ resource "aws_s3_bucket_policy" "central_backup" {
             "s3:DeleteObjectVersion",
             "s3:AbortMultipartUpload"
           ]
-          Resource = "${aws_s3_bucket.central_backup.arn}/*"
+          Resource = "${aws_s3_bucket.central_backup[0].arn}/*"
           Condition = {
             Bool = {
               "aws:MultiFactorAuthPresent" = "false"
@@ -489,17 +491,17 @@ resource "aws_backup_vault" "central" {
 
 output "central_backup_bucket_name" {
   description = "Nombre del bucket central de backups"
-  value       = aws_s3_bucket.central_backup.bucket
+  value       = var.enable_central_bucket ? aws_s3_bucket.central_backup[0].bucket : null
 }
 
 output "central_backup_bucket_arn" {
   description = "ARN del bucket central de backups"
-  value       = aws_s3_bucket.central_backup.arn
+  value       = var.enable_central_bucket ? aws_s3_bucket.central_backup[0].arn : null
 }
 
 output "central_backup_bucket_region" {
   description = "Región del bucket central"
-  value       = var.aws_region
+  value       = var.enable_central_bucket ? var.aws_region : null
 }
 
 output "backup_vault_arn" {

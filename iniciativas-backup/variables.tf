@@ -379,9 +379,9 @@ variable "kms_allow_viaservice" {
   default     = true
 }
 
-# Retención de configuraciones (backup_type=configurations)
+# Retención de configuraciones (backup/configurations)
 variable "cleanup_configurations_days" {
-  description = "Dias para expirar JSON de configuraciones (backup_type=configurations)"
+  description = "Dias para expirar JSON de configuraciones (backup/configurations)"
   type        = number
   default     = 90
 }
@@ -397,4 +397,18 @@ variable "enable_backup_dynamodb" {
   description = "Habilitar planes de AWS Backup para DynamoDB (por tags)"
   type        = bool
   default     = false
+}
+
+# Habilitar el pipeline de backups de datos S3 (Lambdas + Step Functions + Scheduler)
+variable "enable_s3_backups" {
+  description = "Habilitar despliegue de pipeline S3 (incremental + barridos)"
+  type        = bool
+  default     = true
+}
+
+# Controla si se crea el bucket central S3 (si solo usas RDS/DynamoDB ponlo en false)
+variable "enable_central_bucket" {
+  description = "Crear el bucket central de S3 (recursos S3 del modulo central_resources)"
+  type        = bool
+  default     = true
 }

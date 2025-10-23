@@ -15,7 +15,7 @@ Este documento resume, en un lugar, todo lo necesario para desplegar, operar, re
 - Manifiestos incrementales: `manifests/criticality=.../backup_type=incremental/.../window=.../manifest-<ts>.csv`
 - Reportes S3 Batch: `reports/criticality=.../backup_type=incremental/.../window=.../run=<ts>/...`
 - Checkpoints: `checkpoints/<bucket-origen>/<backup_type>.txt`
-- Configuraciones: `backup/criticality=<...>/backup_type=configurations/.../service=<svc>/...json`
+- Configuraciones: `backup/configurations/initiative=<ini>/service=<svc>/year=YYYY/month=MM/day=DD/hour=HH/...json`
 
 ## 3. Variables – terraform.tfvars (raíz)
 

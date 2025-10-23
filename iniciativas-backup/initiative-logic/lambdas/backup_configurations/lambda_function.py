@@ -848,7 +848,7 @@ def save_to_s3(data: Dict[str, Any], service: str, timestamp: str) -> str:
     """
     Guarda las configuraciones en S3 usando estructura Hive consistente.
     
-    Ruta: backup/criticality=Critico/backup_type=configurations/
+    Ruta: backup/configurations/
           initiative={INICIATIVA}/service={service}/
           year=YYYY/month=MM/day=DD/hour=HH/{service}_YYYYMMDD_HHMMSS.json
     """
@@ -856,7 +856,7 @@ def save_to_s3(data: Dict[str, Any], service: str, timestamp: str) -> str:
     
     # Estructura consistente estilo Hive
     key = (
-        f"backup/criticality=Critico/backup_type=configurations/"
+        f"backup/configurations/"
         f"initiative={INICIATIVA}/service={service}/"
         f"year={dt.strftime('%Y')}/month={dt.strftime('%m')}/"
         f"day={dt.strftime('%d')}/hour={dt.strftime('%H')}/"

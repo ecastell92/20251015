@@ -30,8 +30,8 @@ try {
 
 if (-not $Bucket) { $Bucket = Ask "Bucket central" }
 if (-not $Region) { $Region = Ask "Región AWS" "eu-west-1" }
-if (-not $Initiative) { $Initiative = Ask "Initiative (ruta en backup_type=configurations)" "mvp" }
-$Criticality = Ask "Criticality (Critico|MenosCritico|NoCritico)" $Criticality
+if (-not $Initiative) { $Initiative = Ask "Initiative (ruta en backup/configurations)" "mvp" }
+$Criticality = Ask "Criticality (DEPRECATED - ignorado) [Critico|MenosCritico|NoCritico]" $Criticality
 
 Write-Host "Servicios a restaurar:" -ForegroundColor Yellow
 Write-Host "  1) Todos (orden dependencias)" -ForegroundColor Gray
@@ -56,4 +56,3 @@ Write-Host "\nEjecutando:" -ForegroundColor Cyan
 Write-Host ("python " + ($args -join ' ')) -ForegroundColor DarkGray
 & python @args
 if ($LASTEXITCODE -eq 0) { Write-Host "\nRestauración completa." -ForegroundColor Green } else { Write-Host "\nRestauración finalizó con código $LASTEXITCODE" -ForegroundColor Red }
-

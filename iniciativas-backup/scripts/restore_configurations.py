@@ -3,18 +3,18 @@
 Restore AWS configuration snapshots produced by backup_configurations.
 
 Reads JSON artifacts stored under:
-  backup/criticality=<Critico|MenosCritico|NoCritico>/backup_type=configurations/
+  backup/configurations/
     initiative=<initiative>/service=<service>/year=/month=/day=/hour=/...
 
 Supports restoring a subset of services with dry-run by default.
 
 Examples:
   python scripts/restore_configurations.py \
-    --bucket <central-bucket> --initiative mvp --criticality Critico \
+    --bucket <central-bucket> --initiative mvp \\
     --services s3,eventbridge --latest --region eu-west-1 --profile prod --yes
 
   python scripts/restore_configurations.py \
-    --bucket <central-bucket> --initiative mvp --criticality Critico \
+    --bucket <central-bucket> --initiative mvp \\
     --service s3 --timestamp 2025-10-21T19:30:00Z --dry-run
 """
 
@@ -42,8 +42,9 @@ SERVICE_ALIAS = {
 
 def build_prefix(initiative: str, criticality: str, service: str) -> str:
     stored = SERVICE_ALIAS.get(service, service)
+    # criticality is deprecated and ignored in the new layout
     return (
-        f"backup/criticality={criticality}/backup_type=configurations/"
+        f"backup/configurations/"
         f"initiative={initiative}/service={stored}/"
     )
 
@@ -455,7 +456,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Restore configuration snapshots from central bucket")
     ap.add_argument("--bucket", required=True, help="Central backup bucket name")
     ap.add_argument("--initiative", required=True, help="Initiative name used in the path")
-    ap.add_argument("--criticality", default="Critico", choices=["Critico", "MenosCritico", "NoCritico"], help="Criticality path segment")
+    ap.add_argument("--criticality", default="Critico", choices=["Critico", "MenosCritico", "NoCritico"], help="[DEPRECATED - ignored] Criticality path segment")
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--latest", action="store_true", help="Use latest snapshot per service")
     group.add_argument("--timestamp", help="ISO timestamp to pick specific snapshot (prefix match)")

@@ -60,6 +60,9 @@ locals {
   account_id         = data.aws_caller_identity.current.account_id
   region             = data.aws_region.current.name
   central_account_id = coalesce(var.central_account_id, var.cuenta, data.aws_caller_identity.current.account_id)
+  # Nombres comunes para recursos locales (usados por planes de AWS Backup)
+  prefijo_recursos = "${var.tenant}-${lower(var.environment)}"
+  sufijo_recursos  = "${lower(var.iniciativa)}-${var.sufijo_recursos}"
 }
 
 // ============================================================================
@@ -80,6 +83,7 @@ module "central_resources" {
   #central_backup_bucket_name = var.central_backup_bucket_name
   central_backup_vault_name = var.central_backup_vault_name
   sufijo_recursos           = var.sufijo_recursos
+  enable_central_bucket     = var.enable_central_bucket
 
   # Reglas GFS optimizadas
   gfs_rules = var.gfs_rules
@@ -113,6 +117,7 @@ module "central_resources" {
 // DEPENDE de central_resources (bucket debe existir primero)
 
 module "initiative_logic" {
+  count  = var.enable_s3_backups ? 1 : 0
   source = "./initiative-logic"
 
   # Configuración básica
@@ -138,12 +143,12 @@ module "initiative_logic" {
   fallback_time_limit_seconds = var.fallback_time_limit_seconds
 
   # Controles adicionales de incremental
-  incremental_log_level      = var.incremental_log_level
-  disable_window_checkpoint  = var.disable_window_checkpoint
-  exclude_key_prefixes       = var.exclude_key_prefixes
-  exclude_key_suffixes       = var.exclude_key_suffixes
-  source_kms_key_arns        = var.source_kms_key_arns
-  kms_allow_viaservice       = var.kms_allow_viaservice
+  incremental_log_level     = var.incremental_log_level
+  disable_window_checkpoint = var.disable_window_checkpoint
+  exclude_key_prefixes      = var.exclude_key_prefixes
+  exclude_key_suffixes      = var.exclude_key_suffixes
+  source_kms_key_arns       = var.source_kms_key_arns
+  kms_allow_viaservice      = var.kms_allow_viaservice
 
   # Tags para cost allocation
   backup_tags = var.backup_tags
@@ -185,12 +190,12 @@ output "deployment_summary" {
       vault_arn   = module.central_resources.backup_vault_arn
     }
 
-    initiative_logic = {
-      state_machine_arn             = module.initiative_logic.state_machine_arn
-      find_resources_lambda_arn     = module.initiative_logic.find_resources_lambda_arn
-      incremental_backup_lambda_arn = module.initiative_logic.incremental_backup_lambda_arn
-      sqs_queue_url                 = module.initiative_logic.sqs_queue_url
-    }
+    initiative_logic = var.enable_s3_backups ? {
+      state_machine_arn             = module.initiative_logic[0].state_machine_arn
+      find_resources_lambda_arn     = module.initiative_logic[0].find_resources_lambda_arn
+      incremental_backup_lambda_arn = module.initiative_logic[0].incremental_backup_lambda_arn
+      sqs_queue_url                 = module.initiative_logic[0].sqs_queue_url
+    } : null
 
     optimization = {
       versioning_status          = "Suspended"
@@ -211,21 +216,16 @@ output "validation_commands" {
   ========================================
   
   # Ver lifecycle configuration
-  aws s3api get-bucket-lifecycle-configuration \
-    --bucket ${module.central_resources.central_backup_bucket_name} \
-    --output yaml
+  ${var.enable_s3_backups && var.enable_central_bucket ? "aws s3api get-bucket-lifecycle-configuration \\\n+    --bucket ${module.central_resources.central_backup_bucket_name} \\\n+    --output yaml" : "(S3 deshabilitado: no hay lifecycle)"}
   
   # Ver versionado (debe estar Suspended)
-  aws s3api get-bucket-versioning \
-    --bucket ${module.central_resources.central_backup_bucket_name}
+  ${var.enable_s3_backups && var.enable_central_bucket ? "aws s3api get-bucket-versioning \\\n+    --bucket ${module.central_resources.central_backup_bucket_name}" : "(S3 deshabilitado: no hay versionado)"}
   
   # Ver schedules
-  aws scheduler list-schedules \
-    --group-name ${var.tenant}-${lower(var.environment)}-schedules-${var.sufijo_recursos}
+  ${var.enable_s3_backups ? "aws scheduler list-schedules \\\n+    --group-name ${var.tenant}-${lower(var.environment)}-schedules-${var.sufijo_recursos}" : "(S3 deshabilitado: no hay schedules)"}
   
   # Ver logs de find_resources
-  aws logs tail /aws/lambda/${var.tenant}-${lower(var.environment)}-find-resources-${var.sufijo_recursos} \
-    --follow --format short
+  ${var.enable_s3_backups ? "aws logs tail /aws/lambda/${var.tenant}-${lower(var.environment)}-find-resources-${var.sufijo_recursos} \\\n+    --follow --format short" : "(S3 deshabilitado: no hay Lambdas S3)"}
   
   # Ver S3 Batch Jobs
   aws s3control list-jobs \
@@ -236,9 +236,9 @@ output "validation_commands" {
   ✅ DESPLIEGUE COMPLETADO
   ========================================
   
-  Bucket Central: ${module.central_resources.central_backup_bucket_name}
-  State Machine: ${module.initiative_logic.state_machine_arn}
-  SQS Queue: ${module.initiative_logic.sqs_queue_url}
+  Bucket Central: ${var.enable_s3_backups && var.enable_central_bucket ? module.central_resources.central_backup_bucket_name : "(S3 deshabilitado)"}
+  State Machine: ${var.enable_s3_backups ? module.initiative_logic[0].state_machine_arn : "(S3 deshabilitado)"}
+  SQS Queue: ${var.enable_s3_backups ? module.initiative_logic[0].sqs_queue_url : "(S3 deshabilitado)"}
   
   Próximos pasos:
   1. Etiquetar buckets origen con BackupEnabled=true
@@ -264,7 +264,7 @@ resource "aws_iam_role" "backup_service" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect = "Allow",
+      Effect    = "Allow",
       Principal = { Service = "backup.amazonaws.com" },
       Action    = "sts:AssumeRole"
     }]
@@ -292,21 +292,34 @@ resource "aws_backup_plan" "gfs" {
 
   name = "${local.prefijo_recursos}-plan-${lower(each.key)}-${local.sufijo_recursos}"
 
-  rule {
-    rule_name         = "daily-son-${each.key}"
-    target_vault_name = var.central_backup_vault_name
-    schedule          = "cron(0 2 * * ? *)" // diario 02:00 UTC
-    lifecycle {
-      delete_after = each.value.son_retention_days
+  # Ensure the backup vault is created before the plan rules reference it
+  depends_on = [
+    module.central_resources
+  ]
+
+  dynamic "rule" {
+    # Solo crear regla diaria si la retención de Son > 0
+    for_each = each.value.son_retention_days > 0 ? [1] : []
+    content {
+      rule_name         = "daily-son-${each.key}"
+      target_vault_name = var.central_backup_vault_name
+      schedule          = "cron(0 2 * * ? *)" // diario 02:00 UTC
+      lifecycle {
+        delete_after = each.value.son_retention_days
+      }
     }
   }
 
-  rule {
-    rule_name         = "weekly-father-${each.key}"
-    target_vault_name = var.central_backup_vault_name
-    schedule          = "cron(0 3 ? * SUN *)" // semanal domingo 03:00 UTC
-    lifecycle {
-      delete_after = each.value.father_retention_days
+  dynamic "rule" {
+    # Solo crear regla semanal si la retención de Father > 0
+    for_each = each.value.father_retention_days > 0 ? [1] : []
+    content {
+      rule_name         = "weekly-father-${each.key}"
+      target_vault_name = var.central_backup_vault_name
+      schedule          = "cron(0 3 ? * SUN *)" // semanal domingo 03:00 UTC
+      lifecycle {
+        delete_after = each.value.father_retention_days
+      }
     }
   }
 
@@ -331,8 +344,8 @@ resource "aws_backup_plan" "gfs" {
 resource "aws_backup_selection" "gfs" {
   for_each = local.backup_plans_enabled ? local.gfs_enabled_by_crit : {}
 
-  name     = "${local.prefijo_recursos}-sel-${lower(each.key)}-${local.sufijo_recursos}"
-  plan_id  = aws_backup_plan.gfs[each.key].id
+  name         = "${local.prefijo_recursos}-sel-${lower(each.key)}-${local.sufijo_recursos}"
+  plan_id      = aws_backup_plan.gfs[each.key].id
   iam_role_arn = aws_iam_role.backup_service[0].arn
 
   selection_tag {
@@ -359,7 +372,7 @@ resource "null_resource" "cleanup_s3_backup_configs" {
   }
 
   provisioner "local-exec" {
-    when    = destroy
+    when = destroy
     # Destroy-time provisioners cannot reference variables/resources. The
     # script defaults to BackupEnabled=true so we omit args here.
     command = "python scripts/cleanup_s3_backup_configs.py --yes"
@@ -378,7 +391,7 @@ output "central_bucket_arn" {
 
 output "state_machine_arn" {
   description = "ARN de la Step Function orquestadora"
-  value       = module.initiative_logic.state_machine_arn
+  value       = var.enable_s3_backups ? module.initiative_logic[0].state_machine_arn : null
 }
 
 output "cost_optimization_summary" {

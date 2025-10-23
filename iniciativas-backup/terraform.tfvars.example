@@ -102,6 +102,12 @@ backup_config_include_eventbridge   = true
 backup_config_include_dynamodb      = false
 backup_config_include_rds           = false
 
+# --- Seleccion de servicios a desplegar ---
+# Pipeline S3 (Lambdas + Step Functions + Scheduler)
+enable_s3_backups     = true
+# Bucket central de S3 (si solo usas RDS/DynamoDB puedes poner false)
+enable_central_bucket = true
+
 # --- Seguridad (opcionales) ---
 min_deep_archive_offset_days = 90
 enable_object_lock           = false
@@ -118,4 +124,3 @@ backup_tags = {
   Environment  = "dev"
   Initiative   = "mvp"
 }
-

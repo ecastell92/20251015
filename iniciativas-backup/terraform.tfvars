@@ -1,5 +1,5 @@
 ## ============================================================================
-## Configuracion principal (cuaderno por secciones)
+## Configuracion principal - CORREGIDO PARA PRODUCCIÓN
 ## ============================================================================
 
 ## 1) Basicos
@@ -9,6 +9,20 @@ tenant             = "00"
 iniciativa         = "mvp"
 cuenta             = "905418243844"
 central_account_id = "905418243844"
+
+
+# Selección de módulos a implementar  
+
+# Desplegar backup S3
+enable_s3_backups     = false
+enable_central_bucket = false
+
+# Desplegar backup RDS
+enable_backup_rds = true
+
+# Desplegar backup DynamoDB
+enable_backup_dynamodb = false
+
 
 ## 2) Identificadores
 central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
@@ -69,10 +83,11 @@ gfs_rules = {
 }
 
 ## 5) Incrementales – Filtros y controles
+## ⚠️ CRÍTICO: Deshabilitados para asegurar que se copien TODOS los objetos
 criticality_tag             = "BackupCriticality"
 allowed_prefixes            = { Critico = [], MenosCritico = [], NoCritico = [] }
-exclude_key_prefixes        = ["temporary/", "sparkHistoryLogs/"]
-exclude_key_suffixes        = [".inprogress", "/"]
+exclude_key_prefixes        = [] # ← VACÍO = copiar todo
+exclude_key_suffixes        = [] # ← VACÍO = copiar todo
 force_full_on_first_run     = false
 fallback_max_objects        = 0
 fallback_time_limit_seconds = 0
@@ -91,6 +106,7 @@ cleanup_manifests_temp_days   = 7
 cleanup_configurations_days   = 90
 
 ## 8) Backup de configuraciones – toggles
+## ⚠️ CRÍTICO: Habilitados RDS y DynamoDB
 backup_config_log_level             = "INFO"
 backup_config_tag_filter_key        = "BackupEnabled"
 backup_config_tag_filter_value      = "true"
@@ -100,8 +116,8 @@ backup_config_include_lambda        = true
 backup_config_include_iam           = true
 backup_config_include_stepfunctions = true
 backup_config_include_eventbridge   = true
-backup_config_include_dynamodb      = false
-backup_config_include_rds           = false
+backup_config_include_dynamodb      = true # ← HABILITADO
+backup_config_include_rds           = true # ← HABILITADO
 
 ## 9) Seguridad
 min_deep_archive_offset_days = 90
@@ -120,4 +136,7 @@ backup_tags = {
   Initiative   = "mvp"
   CostStrategy = "optimized"
 }
+
+
+
 

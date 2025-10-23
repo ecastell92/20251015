@@ -55,6 +55,13 @@ variable "central_backup_vault_name" {
   type        = string
 }
 
+# Controla si se crea el bucket central de S3 (si solo usas RDS/DynamoDB, desactivarlo)
+variable "enable_central_bucket" {
+  description = "Crear bucket y recursos S3 en este modulo"
+  type        = bool
+  default     = true
+}
+
 variable "sufijo_recursos" {
   description = "Sufijo para asegurar unicidad en nombres de recursos"
   type        = string
@@ -117,9 +124,9 @@ variable "cleanup_manifests_temp_days" {
   default     = 7
 }
 
-# Retención para respaldos de configuraciones (backup_type=configurations)
+# Retención para respaldos de configuraciones (backup/configurations)
 variable "cleanup_configurations_days" {
-  description = "Días para expirar los JSON de configuraciones guardados bajo backup_type=configurations"
+  description = "Días para expirar los JSON de configuraciones guardados bajo backup/configurations"
   type        = number
   default     = 90
 }

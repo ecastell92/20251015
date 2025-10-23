@@ -17,9 +17,7 @@ terraform {
   required_version = ">= 1.4.0"
 }
 
-provider "aws" {
-  region = var.aws_region
-}
+## Inherit AWS provider from root module
 
 // -----------------------------------------------------------------------------
 // Current account info
@@ -1229,7 +1227,7 @@ resource "aws_iam_role_policy" "backup_configurations" {
           "s3:PutObject",
           "s3:GetObject"
         ],
-        Resource = "${local.central_backup_bucket_arn}/backup/criticality=Critico/backup_type=configurations/*"
+    Resource = "${local.central_backup_bucket_arn}/backup/configurations/*"
       },
       {
         Sid    = "AllowS3ReadBucketConfigurations",

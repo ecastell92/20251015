@@ -1,0 +1,31 @@
+# Region and env
+aws_region  = "eu-west-1"
+environment = "dev"
+
+# Networking (replace with your IDs)
+vpc_id             = "vpc-0123456789abcdef0"
+private_subnet_ids = [
+  "subnet-0aaa111bbb222ccc3",
+  "subnet-0ddd444eee555fff6"
+]
+
+# Allow access from a bastion/CIDR (optional)
+allowed_cidr_blocks = ["10.0.0.0/16"]
+
+# DB config
+name_prefix         = "aurora-mini"
+database_name       = "testdb"
+master_username     = "admin"
+# master_password   = "<optional-strong-password>"  # omit to auto-generate
+
+# PITR
+backup_retention_period = 14
+preferred_backup_window = "01:00-02:00"
+
+# Instance size
+instance_class = "db.t4g.medium"
+
+# AWS Backup tags (match your root selection)
+backup_criticality_key   = "BackupCriticality"
+backup_criticality_value = "MenosCritico"
+

@@ -36,10 +36,7 @@ except json.JSONDecodeError:
     ALLOWED_PREFIXES = {}
 
 # ============================================================================
-# FRECUENCIAS CONFIGURABLES (CORREGIDO)
-# ============================================================================
-# Leer frecuencias desde variables de entorno en lugar de hardcodear
-# Formato: BACKUP_FREQUENCY_HOURS_CRITICO=12
+# FRECUENCIAS CONFIGURABLES
 # ============================================================================
 
 def get_frequency_hours(criticality: str) -> Optional[int]:
@@ -127,24 +124,21 @@ def get_bucket_criticality(bucket_name: str) -> str:
 
 
 def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
-    """Verifica si el objeto está dentro de los prefijos permitidos."""
-    prefixes = ALLOWED_PREFIXES.get(criticality, [])
-    if not prefixes:
-        return True  # Sin filtro = todo permitido
-    return any(object_key.startswith(p) for p in prefixes)
-
-
-def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
-    """Aplica exclusiones (prefijo/sufijo y marcadores de carpeta) e inclusiones por criticidad.
-
-    Nota: esta definición sobrescribe la anterior para permitir exclusiones
-    configurables vía variables de entorno EXCLUDE_KEY_PREFIXES/SUFFIXES.
     """
-    # Excluir marcadores de carpeta
+    Aplica exclusiones (prefijo/sufijo y marcadores de carpeta) e inclusiones por criticidad.
+    
+    CORREGIDO: Exclusiones menos agresivas - solo excluye si el prefijo está:
+    1. Al inicio del path (startswith)
+    2. Precedido por / (para subdirectorios)
+    
+    NO excluye si el prefijo aparece en medio de un nombre de archivo/carpeta sin / delante.
+    """
+    # 1. Excluir marcadores de carpeta
     if object_key.endswith('/'):
+        logger.debug(f"Excluido (marcador de carpeta): {object_key}")
         return False
 
-    # Cargar exclusiones desde entorno: JSON (["pfx/"]) o coma-separado
+    # 2. Cargar exclusiones desde entorno
     def _parse_list(name: str) -> List[str]:
         raw = os.environ.get(name, '')
         if not raw:
@@ -158,21 +152,39 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     ex_prefixes = _parse_list('EXCLUDE_KEY_PREFIXES')
     ex_suffixes = _parse_list('EXCLUDE_KEY_SUFFIXES')
 
-    # Excluir por prefijo en cualquier segmento del path. Si el valor viene
-    # como 'sparkHistoryLogs/' y el objeto es 'carga1/sparkHistoryLogs/...',
-    # el siguiente chequeo lo filtrará.
+    # 3. Excluir por prefijo - CORREGIDO: Solo al inicio o precedido por /
     for p in ex_prefixes:
         if not p:
             continue
-        if object_key.startswith(p) or (f"/{p}" in object_key) or (p in object_key):
+        # Normalizar prefijo para comparación
+        p_normalized = p.rstrip('/')
+        
+        # Excluir si:
+        # - Empieza con el prefijo: "temporary/file.txt"
+        # - Tiene el prefijo precedido por /: "data/temporary/file.txt"
+        if object_key.startswith(p_normalized + '/') or object_key.startswith(p_normalized):
+            logger.debug(f"Excluido (prefijo al inicio): {object_key} (match: {p})")
             return False
+        if f"/{p_normalized}/" in object_key:
+            logger.debug(f"Excluido (prefijo en subdirectorio): {object_key} (match: {p})")
+            return False
+    
+    # 4. Excluir por sufijo
     if any(object_key.endswith(s) for s in ex_suffixes):
+        logger.debug(f"Excluido (sufijo): {object_key}")
         return False
 
+    # 5. Aplicar prefijos permitidos por criticidad (inclusión)
     prefixes = ALLOWED_PREFIXES.get(criticality, [])
     if not prefixes:
+        # Sin filtro = todo permitido (excepto exclusiones anteriores)
         return True
-    return any(object_key.startswith(p) for p in prefixes)
+    
+    # Verificar si el objeto está dentro de los prefijos permitidos
+    allowed = any(object_key.startswith(p) for p in prefixes)
+    if not allowed:
+        logger.debug(f"Excluido (fuera de prefijos permitidos): {object_key}")
+    return allowed
 
 
 def compute_window_start(event_time: datetime, freq_hours: int) -> datetime:
@@ -335,7 +347,7 @@ def submit_batch_job(
             )
 
             job_id = response["JobId"]
-            logger.info(f"S3 Batch Job creado: {job_id}")
+            logger.info(f"✅ S3 Batch Job creado: {job_id}")
             return job_id
         except Exception as e:
             last_err = e
@@ -371,7 +383,6 @@ def lambda_handler(event, context):
     # Agrupar objetos por (criticidad, bucket, ventana)
     grouped_objects: Dict[Tuple[str, str, str], Set[str]] = {}
     window_metadata: Dict[Tuple[str, str, str], datetime] = {}
-    # Track which SQS messageIds feed each group for partial-batch failure reporting
     group_message_ids: Dict[Tuple[str, str, str], Set[str]] = {}
     failed_message_ids: List[str] = []
 
@@ -406,7 +417,7 @@ def lambda_handler(event, context):
                 # Obtener criticidad del bucket
                 criticality = get_bucket_criticality(bucket_name)
                 
-                # Obtener frecuencia configurada (CAMBIO PRINCIPAL)
+                # Obtener frecuencia configurada
                 freq_hours = get_frequency_hours(criticality)
                 
                 # Validar si requiere incrementales
@@ -417,10 +428,10 @@ def lambda_handler(event, context):
                     )
                     continue
 
-                # Validar prefijos permitidos
+                # Validar prefijos permitidos y exclusiones
                 if not within_allowed_prefixes(criticality, object_key):
                     logger.debug(
-                        f"Objeto fuera de prefijos permitidos: {object_key}"
+                        f"Objeto excluido por filtros: {object_key}"
                     )
                     continue
 
@@ -436,7 +447,7 @@ def lambda_handler(event, context):
                     group_message_ids.setdefault(group_key, set()).add(message_id)
                 
                 logger.debug(
-                    f"Objeto agrupado: {criticality} / {bucket_name} / "
+                    f"✅ Objeto incluido: {criticality} / {bucket_name} / "
                     f"ventana {freq_hours}h ({window_label})"
                 )
 
@@ -448,7 +459,7 @@ def lambda_handler(event, context):
 
     # Procesar grupos y crear batch jobs
     jobs_created = []
-    logger.info(f"\n Grupos encontrados: {len(grouped_objects)}")
+    logger.info(f"\n📦 Grupos encontrados: {len(grouped_objects)}")
 
     for group_key, object_keys in grouped_objects.items():
         if not object_keys:
@@ -457,15 +468,15 @@ def lambda_handler(event, context):
         criticality, source_bucket, window_label = group_key
         window_start = window_metadata[group_key]
 
-        # Optional idempotence by window; disabled by default to avoid dropping late events
+        # Optional idempotence by window
         if not DISABLE_WINDOW_CHECKPOINT:
             if has_window_been_processed(BACKUP_BUCKET, source_bucket, criticality, window_label):
                 logger.info(
-                    f"Ventana ya procesada anteriormente, saltando: {source_bucket} / {criticality} / {window_label}"
+                    f"⏭️  Ventana ya procesada, saltando: {source_bucket} / {criticality} / {window_label}"
                 )
                 continue
 
-        logger.info(f"\n Procesando grupo:")
+        logger.info(f"\n📋 Procesando grupo:")
         logger.info(f"   Bucket: {source_bucket}")
         logger.info(f"   Criticality: {criticality}")
         logger.info(f"   Window: {window_label}")
@@ -496,7 +507,7 @@ def lambda_handler(event, context):
                 "objects": len(object_keys)
             })
 
-            # Mark window as processed (checkpoint) after successful job submission
+            # Mark window as processed (checkpoint)
             if not DISABLE_WINDOW_CHECKPOINT:
                 try:
                     write_window_checkpoint(BACKUP_BUCKET, source_bucket, criticality, window_label)
@@ -504,22 +515,21 @@ def lambda_handler(event, context):
                     logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
         
         except Exception as exc:
-            # Map the failure to the contributing SQS messages for partial retries
+            # Map failure to contributing SQS messages
             mids = list(group_message_ids.get(group_key, set()))
             failed_message_ids.extend(mids)
             logger.error(
-                f"Error creando job para {source_bucket} ventana {window_label}: {exc}",
+                f"❌ Error creando job para {source_bucket} ventana {window_label}: {exc}",
                 exc_info=True
             )
 
-    # Partial batch response (prevents reprocessing successful messages)
+    # Partial batch response
     failures = list({mid for mid in failed_message_ids if mid})
     if failures:
-        logger.warning(f"Mensajes con error (parcial): {len(failures)}")
+        logger.warning(f"⚠️  Mensajes con error (parcial): {len(failures)}")
     
-    status = "NO_OBJECTS" if not jobs_created else "BATCH_SUBMITTED"
     logger.info("="*80)
-    logger.info(f"Proceso completado: {len(jobs_created)} jobs creados; fallidos={len(failures)}")
+    logger.info(f"✅ Proceso completado: {len(jobs_created)} jobs creados; fallidos={len(failures)}")
     logger.info("="*80)
 
     # SQS partial-batch contract
@@ -528,6 +538,5 @@ def lambda_handler(event, context):
             "batchItemFailures": [{"itemIdentifier": mid} for mid in failures]
         }
     except Exception as e:
-        # Blind fallback to avoid invocation error surfacing to Lambda metric
         logger.error(f"Fallo al construir respuesta parcial: {e}")
         return {"batchItemFailures": []}
