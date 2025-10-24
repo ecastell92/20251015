@@ -344,7 +344,7 @@ variable "disable_window_checkpoint" {
 variable "exclude_key_prefixes" {
   description = "Prefijos a excluir en incrementales (p. ej. temporales)"
   type        = list(string)
-  default     = ["temporary/", "sparkHistoryLogs/"]
+  default     = [""]
 }
 
 variable "exclude_key_suffixes" {

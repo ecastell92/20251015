@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from typing import Dict, Set, Tuple, Optional, List
 import io
 import csv
+import hashlib
+import base64
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -176,10 +178,200 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
 
     # 5. Aplicar prefijos permitidos por criticidad (inclusión)
     prefixes = ALLOWED_PREFIXES.get(criticality, [])
-    if not prefixes:
+    effective = [p for p in prefixes if isinstance(p, str) and p.strip() != ""]
+    if not effective:
         # Sin filtro = todo permitido (excepto exclusiones anteriores)
         return True
-    
+    for p in effective:
+        pn = p.rstrip('/')
+        if object_key.startswith(pn + '/') or object_key.startswith(pn):
+            return True
+    return False
+
+
+# ============================================================================
+# MANIFEST HANDLING WITH STRONG ETag VALIDATION
+# ============================================================================
+
+def upload_manifest(
+    criticality: str,
+    source_bucket: str,
+    window_start: datetime,
+    object_keys: Set[str],
+) -> Tuple[str, str, str, str]:
+    """
+    Sube el CSV con los objetos del ciclo incremental y valida ETag de forma robusta.
+    - Calcula Content-MD5 para asegurar integridad
+    - Compara ETag (single-part) con MD5
+    - Verifica con HeadObject usando IfMatch
+    - Reintenta con backoff exponencial
+    """
+    window_label = window_start.strftime("%Y%m%dT%H%MZ")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+    manifest_key = (
+        f"manifests/criticality={criticality}/backup_type=incremental/"
+        f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
+        f"manifest-{run_id}.csv"
+    )
+
+    # Build CSV
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for key in sorted(object_keys):
+        writer.writerow([source_bucket, key])
+    csv_body = buf.getvalue()
+
+    # MD5 for integrity and ETag (single-part)
+    md5_hex = hashlib.md5(csv_body.encode("utf-8")).hexdigest()
+    md5_b64 = base64.b64encode(bytes.fromhex(md5_hex)).decode("ascii")
+
+    max_attempts = 5
+    base_delay = 1.0
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            put_resp = s3_client.put_object(
+                Bucket=BACKUP_BUCKET,
+                Key=manifest_key,
+                Body=csv_body.encode("utf-8"),
+                ContentType="text/csv",
+                ServerSideEncryption="AES256",
+                ContentMD5=md5_b64,
+                Metadata={
+                    "criticality": criticality,
+                    "object-count": str(len(object_keys)),
+                    "source-bucket": source_bucket,
+                    "window-start": window_label,
+                    "created-at": run_id,
+                },
+            )
+
+            put_etag = put_resp.get("ETag", "").strip('"')
+            logger.info(f"PutObject ETag: {put_etag} (intento {attempt}/{max_attempts})")
+
+            # En single-part, ETag debe igualar md5_hex
+            if not put_etag or put_etag != md5_hex:
+                logger.warning(
+                    f"ETag inesperado tras PUT (esperado MD5 single-part): put={put_etag} md5={md5_hex}"
+                )
+                if attempt < max_attempts:
+                    time.sleep(base_delay * (2 ** (attempt - 1)))
+                    continue
+                raise RuntimeError("ETag inválido tras PUT")
+
+            # Consistencia y verificación condicional
+            time.sleep(base_delay)
+            try:
+                s3_client.head_object(
+                    Bucket=BACKUP_BUCKET,
+                    Key=manifest_key,
+                    IfMatch=put_etag,
+                )
+            except s3_client.exceptions.ClientError as e:
+                status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if status == 412 and attempt < max_attempts:
+                    # ETag aún no visible; backoff y reintento
+                    logger.warning("IfMatch 412: ETag aún no visible; reintentando...")
+                    time.sleep(base_delay * (2 ** attempt))
+                    continue
+                raise
+
+            logger.info(f"✅ Manifiesto subido y verificado (ETag={put_etag})")
+            return manifest_key, put_etag, window_label, run_id
+
+        except Exception as e:
+            logger.error(f"Error subiendo/verificando manifiesto (intento {attempt}/{max_attempts}): {e}")
+            if attempt == max_attempts:
+                raise
+            time.sleep(base_delay * (2 ** attempt))
+
+    raise RuntimeError(f"No se pudo verificar el manifiesto después de {max_attempts} intentos")
+
+
+def submit_batch_job(
+    criticality: str,
+    source_bucket: str,
+    window_start: datetime,
+    manifest_key: str,
+    manifest_etag: str,
+    window_label: str,
+    run_id: str,
+) -> str:
+    """
+    Crea un S3 Batch Operation Job para copiar los objetos del manifiesto.
+    Recibe ETag ya verificado y reintenta ante errores recuperables (ETag/propagación).
+    """
+    job_priority = JOB_PRIORITIES.get(criticality, 5)
+
+    logger.info(f"Creando Batch Job para manifiesto: {manifest_key} (ETag: {manifest_etag})")
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = s3_control.create_job(
+                AccountId=ACCOUNT_ID,
+                ConfirmationRequired=False,
+                Priority=job_priority,
+                RoleArn=BATCH_ROLE_ARN,
+                Operation={
+                    "S3PutObjectCopy": {
+                        "TargetResource": f"arn:aws:s3:::{BACKUP_BUCKET}",
+                        "CannedAccessControlList": "private",
+                        "MetadataDirective": "COPY",
+                        "StorageClass": "STANDARD",
+                        "TargetKeyPrefix": (
+                            f"data/criticality={criticality}/backup_type=incremental/"
+                            f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
+                        ),
+                    }
+                },
+                Manifest={
+                    "Spec": {
+                        "Format": "S3BatchOperations_CSV_20180820",
+                        "Fields": ["Bucket", "Key"],
+                    },
+                    "Location": {
+                        "ObjectArn": f"arn:aws:s3:::{BACKUP_BUCKET}/{manifest_key}",
+                        "ETag": manifest_etag,
+                    },
+                },
+                Report={
+                    "Enabled": True,
+                    "Bucket": f"arn:aws:s3:::{BACKUP_BUCKET}",
+                    "Format": "Report_CSV_20180820",
+                    "ReportScope": "AllTasks",
+                    "Prefix": (
+                        f"reports/criticality={criticality}/backup_type=incremental/"
+                        f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
+                    ),
+                },
+                Tags=[
+                    {"Key": "Criticality", "Value": criticality},
+                    {"Key": "SourceBucket", "Value": source_bucket},
+                    {"Key": "BackupType", "Value": "incremental"},
+                    {"Key": "Window", "Value": window_label},
+                    {"Key": "RunId", "Value": run_id},
+                    {"Key": "Initiative", "Value": INICIATIVA},
+                ],
+            )
+
+            job_id = response["JobId"]
+            logger.info(f"✅ Batch Job creado: {job_id}")
+            return job_id
+
+        except Exception as e:
+            msg = str(e)
+            # Retentar en errores de ETag/propagación típicos
+            if any(k in msg.lower() for k in ["etag", "invalidrequest", "invalidargument", "nosuchkey", "malformedxml"]):
+                logger.warning(f"Reintentando creación de job por error recuperable (intento {attempt}/{max_attempts}): {e}")
+                if attempt < max_attempts:
+                    time.sleep(2 ** attempt)
+                    continue
+            logger.error(f"Error creando Batch Job: {e}")
+            raise
+
+    raise RuntimeError(f"No se pudo crear Batch Job después de {max_attempts} intentos")
     # Verificar si el objeto está dentro de los prefijos permitidos
     allowed = any(object_key.startswith(p) for p in prefixes)
     if not allowed:
