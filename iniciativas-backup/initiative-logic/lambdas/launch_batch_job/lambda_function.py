@@ -23,6 +23,13 @@ s3_control = boto3.client("s3control")
 s3_client = boto3.client("s3")
 
 
+def _normalize_etag(raw_etag: str) -> str:
+    """Ensure the ETag matches the format expected by S3 Batch Operations."""
+    if raw_etag.startswith('"') and raw_etag.endswith('"'):
+        return raw_etag[1:-1]
+    return raw_etag
+
+
 def move_manifest_if_needed(
     temp_bucket: str,
     temp_key: str,
@@ -38,7 +45,7 @@ def move_manifest_if_needed(
         logger.info("Manifest already in final location: s3://%s/%s", 
                    CENTRAL_BUCKET_NAME, final_key)
         head_resp = s3_client.head_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
-        return head_resp["ETag"].strip('"')
+        return _normalize_etag(head_resp["ETag"])
     
     # Validar que ambos están en el bucket central
     if temp_bucket != CENTRAL_BUCKET_NAME:
@@ -67,11 +74,11 @@ def move_manifest_if_needed(
         
         # Verificar que la copia fue exitosa antes de borrar
         head_resp = s3_client.head_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
-        final_etag = head_resp["ETag"].strip('"')
-        
+        final_etag = _normalize_etag(head_resp["ETag"])
+
         # Solo borrar si la verificación fue exitosa
         s3_client.delete_object(Bucket=temp_bucket, Key=temp_key)
-        
+
         logger.info("✅ Manifest moved successfully (ETag: %s)", final_etag)
         return final_etag
         
