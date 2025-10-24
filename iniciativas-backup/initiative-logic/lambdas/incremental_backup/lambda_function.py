@@ -3,10 +3,10 @@ import json
 import os
 import logging
 import uuid
+import time  # ← AGREGADO
 from urllib.parse import unquote_plus
 from datetime import datetime, timezone
 from typing import Dict, Set, Tuple, Optional, List
-import time
 import io
 import csv
 
@@ -194,7 +194,7 @@ def compute_window_start(event_time: datetime, freq_hours: int) -> datetime:
 
 
 # ============================================================================
-# MANIFEST GENERATION
+# MANIFEST GENERATION - CORREGIDO
 # ============================================================================
 
 def upload_manifest(
@@ -205,6 +205,7 @@ def upload_manifest(
 ) -> Tuple[str, str, str, str]:
     """
     Sube el CSV con los objetos del ciclo incremental.
+    CORREGIDO: Obtiene ETag confiable y espera consistencia.
     
     Returns:
         Tuple[key, etag, window_label, run_id]
@@ -227,38 +228,61 @@ def upload_manifest(
 
     logger.info(f"Subiendo manifiesto: s3://{BACKUP_BUCKET}/{manifest_key}")
 
-    put_resp = s3_client.put_object(
-        Bucket=BACKUP_BUCKET,
-        Key=manifest_key,
-        Body=csv_body.encode("utf-8"),
-        ContentType="text/csv",
-        ServerSideEncryption="AES256", 
-        Metadata={
-            "criticality": criticality,
-            "object-count": str(len(object_keys)),
-            "source-bucket": source_bucket,
-            "window-start": window_label,
-            "created-at": run_id,
-        },
+    # Upload con retry para asegurar consistencia
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            put_resp = s3_client.put_object(
+                Bucket=BACKUP_BUCKET,
+                Key=manifest_key,
+                Body=csv_body.encode("utf-8"),
+                ContentType="text/csv",
+                ServerSideEncryption="AES256",
+                Metadata={
+                    "criticality": criticality,
+                    "object-count": str(len(object_keys)),
+                    "source-bucket": source_bucket,
+                    "window-start": window_label,
+                    "created-at": run_id,
+                },
+            )
+
+            # CRÍTICO: Obtener ETag del PutObject response
+            etag = put_resp.get("ETag", "").strip('"')
+            
+            # Verificar inmediatamente que el objeto existe con el mismo ETag
+            time.sleep(0.5)  # Pequeño delay para consistencia eventual
+            head_resp = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)
+            head_etag = head_resp.get("ETag", "").strip('"')
+            
+            if etag and etag == head_etag:
+                logger.info(f"✅ Manifiesto verificado con ETag: {etag}")
+                logger.info(f"   Objetos: {len(object_keys)}")
+                return manifest_key, etag, window_label, run_id
+            else:
+                logger.warning(
+                    f"ETag mismatch en intento {attempt}: "
+                    f"put={etag} vs head={head_etag}"
+                )
+                if attempt < max_attempts:
+                    time.sleep(1)
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error en intento {attempt}: {e}")
+            if attempt < max_attempts:
+                time.sleep(1)
+                continue
+            raise
+    
+    # Si llegamos aquí, todos los intentos fallaron
+    raise RuntimeError(
+        f"No se pudo subir manifest con ETag consistente después de {max_attempts} intentos"
     )
-
-    # Obtener ETag del put para evitar inconsistencias
-    etag = put_resp.get("ETag")
-    if not etag:
-        etag = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)["ETag"]
-
-    # S3 Batch normalmente requiere el ETag sin comillas dobles
-    if etag:
-        etag = etag.strip('"')
-        
-
-    logger.info(f"Manifiesto creado con {len(object_keys)} objetos")
-
-    return manifest_key, etag, window_label, run_id
 
 
 # ============================================================================
-# S3 BATCH JOB SUBMISSION
+# S3 BATCH JOB SUBMISSION - SIMPLIFICADO
 # ============================================================================
 
 def submit_batch_job(
@@ -266,7 +290,7 @@ def submit_batch_job(
     source_bucket: str,
     window_start: datetime,
     manifest_key: str,
-    manifest_etag: str,
+    manifest_etag: str,  # Ya viene sin comillas y verificado
     window_label: str,
     run_id: str,
 ) -> str:
@@ -299,71 +323,99 @@ def submit_batch_job(
     logger.info(f"   Criticality: {criticality}")
     logger.info(f"   Window: {window_label}")
     logger.info(f"   Manifest: s3://{BACKUP_BUCKET}/{manifest_key}")
+    logger.info(f"   ETag: {manifest_etag}")
 
-    # Intentar con dos variantes de ETag: sin comillas (default) y con comillas (fallback)
-    etag_variants = [manifest_etag]
     try:
-        if not manifest_etag.startswith('"'):
-            etag_variants.append(f'"{manifest_etag}"')
-        else:
-            etag_variants.append(manifest_etag.strip('"'))
-    except Exception:
-        pass
+        response = s3_control.create_job(
+            AccountId=ACCOUNT_ID,
+            ConfirmationRequired=False,
+            Operation={
+                "S3PutObjectCopy": {
+                    "TargetResource": BACKUP_BUCKET_ARN,
+                    "TargetKeyPrefix": data_prefix,
+                }
+            },
+            Report={
+                "Enabled": True,
+                "Bucket": BACKUP_BUCKET_ARN,
+                "Prefix": reports_prefix,
+                "Format": "Report_CSV_20180820",
+                "ReportScope": "AllTasks",
+            },
+            Manifest={
+                "Spec": {
+                    "Format": "S3BatchOperations_CSV_20180820",
+                    "Fields": ["Bucket", "Key"],
+                },
+                "Location": {
+                    "ObjectArn": manifest_arn,
+                    "ETag": manifest_etag,  # Sin comillas, ya verificado
+                },
+            },
+            Description=description,
+            RoleArn=BATCH_ROLE_ARN,
+            Priority=10,
+            ClientRequestToken=str(uuid.uuid4()),
+        )
 
-    last_err: Optional[Exception] = None
-    for idx, etag_try in enumerate(etag_variants):
-        try:
-            logger.info(f"Intento create_job con ETag variante {idx+1}/{len(etag_variants)}: {etag_try}")
-            response = s3_control.create_job(
-                AccountId=ACCOUNT_ID,
-                ConfirmationRequired=False,
-                Operation={
-                    "S3PutObjectCopy": {
-                        "TargetResource": BACKUP_BUCKET_ARN,
-                        "TargetKeyPrefix": data_prefix,
-                    }
-                },
-                Report={
-                    "Enabled": True,
-                    "Bucket": BACKUP_BUCKET_ARN,
-                    "Prefix": reports_prefix,
-                    "Format": "Report_CSV_20180820",
-                    "ReportScope": "AllTasks",
-                },
-                Manifest={
-                    "Spec": {
-                        "Format": "S3BatchOperations_CSV_20180820",
-                        "Fields": ["Bucket", "Key"],
+        job_id = response["JobId"]
+        logger.info(f"✅ S3 Batch Job creado: {job_id}")
+        return job_id
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Error creando Batch Job: {error_msg}")
+        
+        # Si es error de ETag, intentar una vez más con HeadObject fresh
+        if "ETag" in error_msg or "etag" in error_msg.lower():
+            logger.warning("⚠️  Reintentando con ETag fresh de HeadObject...")
+            time.sleep(2)
+            try:
+                head_resp = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)
+                fresh_etag = head_resp["ETag"].strip('"')
+                logger.info(f"   ETag fresh: {fresh_etag}")
+                
+                response = s3_control.create_job(
+                    AccountId=ACCOUNT_ID,
+                    ConfirmationRequired=False,
+                    Operation={
+                        "S3PutObjectCopy": {
+                            "TargetResource": BACKUP_BUCKET_ARN,
+                            "TargetKeyPrefix": data_prefix,
+                        }
                     },
-                    "Location": {
-                        "ObjectArn": manifest_arn,
-                        "ETag": etag_try,
+                    Report={
+                        "Enabled": True,
+                        "Bucket": BACKUP_BUCKET_ARN,
+                        "Prefix": reports_prefix,
+                        "Format": "Report_CSV_20180820",
+                        "ReportScope": "AllTasks",
                     },
-                },
-                Description=description,
-                RoleArn=BATCH_ROLE_ARN,
-                Priority=10,
-                ClientRequestToken=str(uuid.uuid4()),
-            )
-
-            job_id = response["JobId"]
-            logger.info(f"✅ S3 Batch Job creado: {job_id}")
-            return job_id
-        except Exception as e:
-            last_err = e
-            msg = str(e)
-            # Reintentar si parece un problema de ETag
-            if "Etag mismatch" in msg or "ETag" in msg:
-                logger.warning(f"Fallo create_job por ETag ('{msg[:120]}...'), reintentando con variante alternativa en 1s")
-                time.sleep(1)
-                continue
-            else:
-                logger.error(f"Error creando Batch Job: {e}", exc_info=True)
+                    Manifest={
+                        "Spec": {
+                            "Format": "S3BatchOperations_CSV_20180820",
+                            "Fields": ["Bucket", "Key"],
+                        },
+                        "Location": {
+                            "ObjectArn": manifest_arn,
+                            "ETag": fresh_etag,
+                        },
+                    },
+                    Description=description,
+                    RoleArn=BATCH_ROLE_ARN,
+                    Priority=10,
+                    ClientRequestToken=str(uuid.uuid4()),
+                )
+                
+                job_id = response["JobId"]
+                logger.info(f"✅ S3 Batch Job creado (retry): {job_id}")
+                return job_id
+                
+            except Exception as retry_error:
+                logger.error(f"❌ Retry también falló: {retry_error}")
                 raise
-
-    # Si agotamos variantes, propagar último error
-    logger.error(f"Fallo creando Batch Job tras probar variantes de ETag: {last_err}")
-    raise last_err
+        
+        raise
 
 
 # ============================================================================
@@ -533,10 +585,6 @@ def lambda_handler(event, context):
     logger.info("="*80)
 
     # SQS partial-batch contract
-    try:
-        return {
-            "batchItemFailures": [{"itemIdentifier": mid} for mid in failures]
-        }
-    except Exception as e:
-        logger.error(f"Fallo al construir respuesta parcial: {e}")
-        return {"batchItemFailures": []}
+    return {
+        "batchItemFailures": [{"itemIdentifier": mid} for mid in failures]
+    }
