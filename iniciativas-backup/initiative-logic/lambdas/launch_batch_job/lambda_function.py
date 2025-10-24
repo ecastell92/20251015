@@ -38,7 +38,7 @@ def move_manifest_if_needed(
         logger.info("Manifest already in final location: s3://%s/%s", 
                    CENTRAL_BUCKET_NAME, final_key)
         head_resp = s3_client.head_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
-        return head_resp["ETag"].strip('"')
+        return head_resp["ETag"]
     
     # Validar que ambos están en el bucket central
     if temp_bucket != CENTRAL_BUCKET_NAME:
@@ -67,7 +67,7 @@ def move_manifest_if_needed(
         
         # Verificar que la copia fue exitosa antes de borrar
         head_resp = s3_client.head_object(Bucket=CENTRAL_BUCKET_NAME, Key=final_key)
-        final_etag = head_resp["ETag"].strip('"')
+        final_etag = head_resp["ETag"]
         
         # Solo borrar si la verificación fue exitosa
         s3_client.delete_object(Bucket=temp_bucket, Key=temp_key)
