@@ -55,9 +55,10 @@ fi
 
 echo -e "\nPayload (previsualización):\n$PAYLOAD"
 TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
 echo "$PAYLOAD" > "$TMP"
 PREVIEW=restore-data-preview.json
-aws lambda invoke --function-name "$FN" --payload "$PAYLOAD" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$PREVIEW" >/dev/null
+aws lambda invoke --function-name "$FN" --payload "fileb://$TMP" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$PREVIEW" >/dev/null
 if [ ! -f "$PREVIEW" ]; then echo "Error invocando Lambda (preview)."; exit 2; fi
 echo -e "\nResultado (preview):\n"
 cat restore-data-preview.json
@@ -69,7 +70,7 @@ if yesno "¿Ejecutar copia con dry_run=false ahora?" y; then
   echo "$PAYLOAD" > "$TMP"
   echo -e "\nEjecutando restauración..."
   OUT=restore-data-out.json
-  aws lambda invoke --function-name "$FN" --payload "$PAYLOAD" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$OUT" >/dev/null
+  aws lambda invoke --function-name "$FN" --payload "fileb://$TMP" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$OUT" >/dev/null
   if [ ! -f "$OUT" ]; then echo "Error invocando Lambda (restauración)."; exit 2; fi
   echo -e "\nResultado:\n"
   cat restore-data-out.json
