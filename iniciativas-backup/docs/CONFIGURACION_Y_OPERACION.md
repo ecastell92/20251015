@@ -174,3 +174,22 @@ python scripts/cleanup_s3_backup_configs.py --profile <perfil> --region <region>
 - `scripts/s3_batch_report_summary.py` – resume el último CSV de reportes de S3 Batch.
 - `scripts/restore_configurations.py` – restauración por servicio o `--all` (dry‑run por defecto).
 - `scripts/cleanup_s3_backup_configs.py` – limpia Inventory y notificaciones S3→SQS.
+
+## 10. Administración multi-cuenta desde la app
+
+Cuando la iniciativa debe operar en varias cuentas (por ejemplo 10 cuentas productivas), usa la aplicación ubicada en `app/` para
+unificar la orquestación desde una sola consola.
+
+1. Copia `app/config/accounts.example.yaml` a una ruta segura y actualiza los ARNs reales de Step Functions y roles `backup-admin`
+   por cuenta.
+2. Instala dependencias: `pip install -r app/requirements.txt`.
+3. Ejecuta la CLI:
+
+```bash
+python -m app.cli list-accounts --config accounts.yaml
+python -m app.cli trigger-backup account-analytics --criticality Critico --config accounts.yaml
+python -m app.cli trigger-restore account-analytics --source-bucket datos --config accounts.yaml
+```
+
+La app asume el rol definido en cada cuenta, invoca la Step Function de backups/restauraciones correspondiente y registra el ARN
+de ejecución devuelto por Step Functions.

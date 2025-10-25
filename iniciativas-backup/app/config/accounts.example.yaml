@@ -1,0 +1,83 @@
+# Example configuration file for the backup admin app.
+# Each account entry represents one AWS account that runs its own backup stack.
+accounts:
+  - key: account-analytics
+    name: Analytics Platform
+    account_id: "111111111111"
+    region: eu-west-1
+    role_arn: arn:aws:iam::111111111111:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:111111111111:stateMachine:analytics-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:111111111111:stateMachine:analytics-restore
+    default_generation: son
+  - key: account-retail
+    name: Retail Data Lake
+    account_id: "222222222222"
+    region: eu-west-1
+    role_arn: arn:aws:iam::222222222222:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:222222222222:stateMachine:retail-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:222222222222:stateMachine:retail-restore
+    default_generation: son
+  - key: account-ml
+    name: Machine Learning
+    account_id: "333333333333"
+    region: eu-west-1
+    role_arn: arn:aws:iam::333333333333:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:333333333333:stateMachine:ml-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:333333333333:stateMachine:ml-restore
+    default_generation: father
+  - key: account-security
+    name: Security Lake
+    account_id: "444444444444"
+    region: eu-central-1
+    role_arn: arn:aws:iam::444444444444:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-central-1:444444444444:stateMachine:security-backup
+    restore_state_machine_arn: arn:aws:states:eu-central-1:444444444444:stateMachine:security-restore
+    default_generation: son
+  - key: account-operations
+    name: Operations Data
+    account_id: "555555555555"
+    region: eu-west-2
+    role_arn: arn:aws:iam::555555555555:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-2:555555555555:stateMachine:operations-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-2:555555555555:stateMachine:operations-restore
+    default_generation: son
+  - key: account-marketing
+    name: Marketing Insights
+    account_id: "666666666666"
+    region: eu-west-1
+    role_arn: arn:aws:iam::666666666666:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:666666666666:stateMachine:marketing-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:666666666666:stateMachine:marketing-restore
+    default_generation: son
+  - key: account-hr
+    name: HR Data Lake
+    account_id: "777777777777"
+    region: eu-west-1
+    role_arn: arn:aws:iam::777777777777:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:777777777777:stateMachine:hr-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:777777777777:stateMachine:hr-restore
+    default_generation: son
+  - key: account-finance
+    name: Finance Systems
+    account_id: "888888888888"
+    region: eu-west-3
+    role_arn: arn:aws:iam::888888888888:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-3:888888888888:stateMachine:finance-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-3:888888888888:stateMachine:finance-restore
+    default_generation: grandfather
+  - key: account-logistics
+    name: Logistics Platform
+    account_id: "999999999999"
+    region: eu-west-1
+    role_arn: arn:aws:iam::999999999999:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:999999999999:stateMachine:logistics-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:999999999999:stateMachine:logistics-restore
+    default_generation: son
+  - key: account-iot
+    name: IoT Edge
+    account_id: "101010101010"
+    region: eu-west-1
+    role_arn: arn:aws:iam::101010101010:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:101010101010:stateMachine:iot-backup
+    restore_state_machine_arn: arn:aws:states:eu-west-1:101010101010:stateMachine:iot-restore
+    default_generation: son
