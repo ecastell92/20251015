@@ -19,7 +19,6 @@ class AccountConfig:
     region: str
     role_arn: str
     backup_state_machine_arn: Optional[str] = None
-    restore_state_machine_arn: Optional[str] = None
     default_generation: str = "son"
 
     def summary(self) -> str:
@@ -69,7 +68,6 @@ def load_config(path: Path) -> AppConfig:
                 region=entry["region"],
                 role_arn=entry["role_arn"],
                 backup_state_machine_arn=entry.get("backup_state_machine_arn"),
-                restore_state_machine_arn=entry.get("restore_state_machine_arn"),
                 default_generation=entry.get("default_generation", "son"),
             )
         except KeyError as exc:

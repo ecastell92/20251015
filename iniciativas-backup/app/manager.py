@@ -27,7 +27,6 @@ class BackupManager:
             "region": acc.region,
             "default_generation": acc.default_generation,
             "backup_state_machine_arn": acc.backup_state_machine_arn,
-            "restore_state_machine_arn": acc.restore_state_machine_arn,
         } for acc in self._config.accounts}
 
     def _prepare_step_functions_client(self, account: cfg.AccountConfig):
@@ -65,23 +64,6 @@ class BackupManager:
         )
         return response["executionArn"]
 
-    def trigger_restore(
-        self,
-        account_key: str,
-        request: Dict,
-    ) -> str:
-        account = self._config.get(account_key)
-        if not account.restore_state_machine_arn:
-            raise ValueError(f"Account '{account_key}' does not define a restore state machine ARN")
-
-        client = self._prepare_step_functions_client(account)
-        execution_input = {"request": request}
-        response = client.start_execution(
-            stateMachineArn=account.restore_state_machine_arn,
-            name=self._execution_name(account_key, "restore"),
-            input=json.dumps(execution_input),
-        )
-        return response["executionArn"]
 
     @staticmethod
     def _execution_name(account_key: str, suffix: str) -> str:

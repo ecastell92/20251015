@@ -1,6 +1,6 @@
-// ============================================================================
+// =============================================================================
 // Initiative Logic Outputs
-// ============================================================================
+// =============================================================================
 
 output "state_machine_arn" {
   description = "ARN de la Step Function orquestadora de backups"
@@ -10,16 +10,6 @@ output "state_machine_arn" {
 output "state_machine_name" {
   description = "Nombre de la Step Function"
   value       = aws_sfn_state_machine.backup_orchestrator.name
-}
-
-output "restore_state_machine_arn" {
-  description = "ARN de la Step Function orquestadora de restauraciones"
-  value       = aws_sfn_state_machine.restore_orchestrator.arn
-}
-
-output "restore_state_machine_name" {
-  description = "Nombre de la Step Function de restauración"
-  value       = aws_sfn_state_machine.restore_orchestrator.name
 }
 
 output "find_resources_lambda_arn" {
@@ -94,11 +84,10 @@ output "lambda_functions" {
     launch_batch_job      = aws_lambda_function.launch_batch_job.function_name
     incremental_backup    = aws_lambda_function.incremental_backup.function_name
     backup_configurations = aws_lambda_function.backup_configurations.function_name
-    restore_from_backup   = aws_lambda_function.restore_from_backup.function_name
   }
 }
 
-# Visibilidad del ruteo de incrementales según frecuencias configuradas
+# Visibilidad del ruteo de incrementales segun frecuencias configuradas
 output "event_driven_criticalities" {
   description = "Criticidades que van por event-driven (0 < h <= 24)"
   value       = local.notif_criticalities
@@ -115,7 +104,7 @@ output "no_incremental_criticalities" {
 }
 
 output "monitoring_commands" {
-  description = "Comandos útiles para monitoreo"
+  description = "Comandos utiles para monitoreo"
   value       = <<-EOT
   
   # Ver logs de find_resources
@@ -156,10 +145,11 @@ output "dashboard_name" {
 output "cost_optimization_applied" {
   description = "Resumen de optimizaciones aplicadas"
   value = {
-    sqs_batch_size            = "1000 (antes: 10) → Reducción 99% invocaciones"
+    sqs_batch_size            = "1000 (antes: 10) - Reduccion 99% invocaciones"
     sqs_batching_window       = "300s (antes: 20s)"
-    log_retention             = "7/14 días (antes: indefinido)"
+    log_retention             = "7/14 dias (antes: indefinido)"
     dlq_enabled               = "true (antes: false)"
     estimated_monthly_savings = "$9,600+ (para 20 buckets con 10M objetos)"
   }
 }
+

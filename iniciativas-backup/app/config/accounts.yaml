@@ -1,0 +1,8 @@
+accounts:
+  - key: account-actual
+    name: Cuenta Actual
+    account_id: "905418243844"
+    region: eu-west-1
+    role_arn: arn:aws:iam::905418243844:role/backup-admin
+    backup_state_machine_arn: arn:aws:states:eu-west-1:905418243844:stateMachine:00-dev-s3-backup-orchestrator-mvp-bck-001-aws
+    default_generation: son

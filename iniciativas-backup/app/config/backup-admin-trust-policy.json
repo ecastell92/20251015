@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAdminAccountAssumeRole",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<ADMIN_ACCOUNT_ID>:root"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+

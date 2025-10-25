@@ -90,68 +90,15 @@ Tras el deploy, `find_resources` corre una vez (one‑shot) y configura S3 Inven
 - Jobs S3 Batch: `aws s3control list-jobs --account-id <acct>`
 - Reporte último job: `python scripts/s3_batch_report_summary.py --bucket <central-bucket> --region <region>`
 
-## 6. Restauración de configuraciones
+## 6. Validaciones adicionales
 
-Usa `scripts/restore_configurations.py`.
+### 6.1 Operación y monitoreo
 
-- Restaurar todo (dependencias):
-```
-python scripts/restore_configurations.py \
-  --bucket <central-bucket> --initiative <ini> --criticality Critico \
-  --all --latest --region <region> --profile <perfil> --yes
-```
-- Dry‑run: omite `--yes`.
-- Servicios soportados: `iam,s3,eventbridge,stepfunctions,glue,athena,lambda,dynamodb,rds`.
+- Logs de Lambdas de backup e inventario.
+- SQS encolando eventos de S3.
+- Schedules de EventBridge según criticidad.
 
-### 6.1 Restauración fácil (sin código)
-
-Para hacerlo aún más simple, hay dos “wrappers” interactivos que preguntan y ejecutan la restauración por ti:
-
-- PowerShell (Windows):
-  - `pwsh -File scripts/restore_easy.ps1`
-  - Detecta `bucket` y `región` desde `terraform output` cuando es posible.
-  - Permite elegir `criticality`, `services` o `--all`, y si usar `--latest` o un `--timestamp`.
-  - Confirmación final y ejecución con/ sin `--yes`.
-
-- Bash (Linux/macOS):
-  - `bash scripts/restore_easy.sh`
-  - Mismo flujo básico con preguntas y valores por defecto.
-
-### 6.2 Restauración de DATOS (objetos S3)
-
-Los scripts anteriores restauran CONFIGURACIONES. Para restaurar DATOS, usa los wrappers de la Lambda `restore_from_backup`:
-
-- PowerShell:
-  - `pwsh -File scripts/restore_data_easy.ps1`
-  - Pregunta bucket origen (destino de la restauración), criticidad, tipo (incremental/full), generación, último manifest o fecha/hora, prefijo, y si aplicar (o dry‑run).
-
-- Bash:
-  - `bash scripts/restore_data_easy.sh`
-  - Mismo flujo interactivo. Construye el payload y ejecuta `aws lambda invoke`.
-
-Notas:
-- Si eliges “último manifest”, la función busca automáticamente el más reciente para la combinación indicada.
-- Usa “prefijo” para acotar (ej. `output/`).
-- Los wrappers realizan SIEMPRE una previsualización (dry‑run) primero y muestran `manifest_key` y `data_prefix`; si confirmas, ejecutan la copia real con `dry_run=false`.
-
-### 6.3 Orquestación de restauraciones con Step Functions
-
-Además de invocar la Lambda directamente, ahora existe la Step Function `${tenant}-${env}-s3-restore-orchestrator-${sufijo}` que permite agrupar restauraciones múltiples o aplicar valores por defecto comunes. Ejemplo de ejecución:
-
-```bash
-aws stepfunctions start-execution \
-  --state-machine-arn $(terraform output -raw restore_state_machine_arn) \
-  --input '{
-    "defaults": {"criticality": "Critico", "backup_type": "incremental", "generation": "son"},
-    "restore_requests": [
-      {"source_bucket": "app-prod-raw", "dry_run": true},
-      {"source_bucket": "app-prod-curated", "prefix": "2024/", "dry_run": false}
-    ]
-  }'
-```
-
-- Usa `request` en lugar de `restore_requests` para ejecutar un único flujo: `{"request": {"source_bucket": "..."}}`.
-- `defaults` es opcional; cuando está presente, se fusiona con cada petición, permitiendo definir criticidad, tipo de backup, generación o `max_objects` comunes.
+ 
 
 ## 7. Limpieza y destroy
 
@@ -172,7 +119,6 @@ python scripts/cleanup_s3_backup_configs.py --profile <perfil> --region <region>
 ## 9. Scripts útiles
 
 - `scripts/s3_batch_report_summary.py` – resume el último CSV de reportes de S3 Batch.
-- `scripts/restore_configurations.py` – restauración por servicio o `--all` (dry‑run por defecto).
 - `scripts/cleanup_s3_backup_configs.py` – limpia Inventory y notificaciones S3→SQS.
 
 ## 10. Administración multi-cuenta desde la app
@@ -188,7 +134,6 @@ unificar la orquestación desde una sola consola.
 ```bash
 python -m app.cli list-accounts --config accounts.yaml
 python -m app.cli trigger-backup account-analytics --criticality Critico --config accounts.yaml
-python -m app.cli trigger-restore account-analytics --source-bucket datos --config accounts.yaml
 ```
 
 La app asume el rol definido en cada cuenta, invoca la Step Function de backups/restauraciones correspondiente y registra el ARN
