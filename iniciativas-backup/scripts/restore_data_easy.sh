@@ -19,8 +19,11 @@ fi
 
 # Detect lambda function name
 echo "Buscando función Lambda restore_from_backup..."
-PROFILE_ARG=""; [ -n "${PROFILE:-}" ] && PROFILE_ARG=(--profile "$PROFILE")
-FN=$(aws lambda list-functions --region "$REGION" ${PROFILE_ARG[@]:-} --query "Functions[?contains(FunctionName,'restore-from-backup')].FunctionName | [0]" --output text 2>/dev/null || true)
+PROFILE_ARG=()
+if [ -n "${PROFILE:-}" ]; then
+  PROFILE_ARG=(--profile "$PROFILE")
+fi
+FN=$(aws lambda list-functions --region "$REGION" "${PROFILE_ARG[@]}" --query "Functions[?contains(FunctionName,'restore-from-backup')].FunctionName | [0]" --output text 2>/dev/null || true)
 if [ "$FN" = "None" ] || [ -z "$FN" ]; then
   FN=$(ask "Nombre de la función Lambda" "")
 fi
@@ -45,20 +48,17 @@ PFX=$(ask "Prefijo (opcional, ej. output/)" "")
 MAX=$(ask "Máximo de objetos" "10000")
 APPLY=0; yesno "¿Aplicar copia ahora? (No = solo previsualizar)" n && APPLY=1
 
-PAYLOAD=$(jq -n \
+PAYLOAD=$(jq -c -n \
   --arg src "$SRC" --arg crit "$CRIT" --arg bt "$BT" --arg gen "$GEN" \
   --arg pfx "$PFX" --argjson max "$MAX" --argjson dry "$([ "$APPLY" -eq 1 ] && echo false || echo true)" \
-  '{source_bucket:$src,criticality:$crit,backup_type:$bt,generation:$gen,prefix:$pfx,max_objects:$max,dry_run:$dry}')
+  '{source_bucket:$src,criticality:$crit,backup_type:$bt,generation:$gen,prefix:$pfx,max_objects:$max,dry_run:$dry}' | tr -d '\n')
 if [ "$USE_LATEST" -eq 0 ]; then
-  PAYLOAD=$(echo "$PAYLOAD" | jq --arg y "$Y" --arg m "$M" --arg d "$D" --arg h "$H" '.+{year:$y,month:$m,day:$d,hour:$h}')
+  PAYLOAD=$(jq -c --arg y "$Y" --arg m "$M" --arg d "$D" --arg h "$H" '.+{year:$y,month:$m,day:$d,hour:$h}' <<<"$PAYLOAD" | tr -d '\n')
 fi
 
 echo -e "\nPayload (previsualización):\n$PAYLOAD"
-TMP=$(mktemp)
-trap 'rm -f "$TMP"' EXIT
-echo "$PAYLOAD" > "$TMP"
 PREVIEW=restore-data-preview.json
-aws lambda invoke --function-name "$FN" --payload "fileb://$TMP" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$PREVIEW" >/dev/null
+aws lambda invoke --function-name "$FN" --payload "$PAYLOAD" --region "$REGION" "${PROFILE_ARG[@]}" --cli-binary-format raw-in-base64-out "$PREVIEW" >/dev/null
 if [ ! -f "$PREVIEW" ]; then echo "Error invocando Lambda (preview)."; exit 2; fi
 echo -e "\nResultado (preview):\n"
 cat restore-data-preview.json
@@ -66,11 +66,10 @@ cat restore-data-preview.json
 if [ "$APPLY" -ne 1 ]; then echo -e "\nListo (solo previsualización)."; exit 0; fi
 
 if yesno "¿Ejecutar copia con dry_run=false ahora?" y; then
-  PAYLOAD=$(echo "$PAYLOAD" | jq '.dry_run=false')
-  echo "$PAYLOAD" > "$TMP"
+  PAYLOAD=$(jq -c '.dry_run=false' <<<"$PAYLOAD" | tr -d '\n')
   echo -e "\nEjecutando restauración..."
   OUT=restore-data-out.json
-  aws lambda invoke --function-name "$FN" --payload "fileb://$TMP" --region "$REGION" ${PROFILE_ARG[@]:-} --cli-binary-format raw-in-base64-out "$OUT" >/dev/null
+  aws lambda invoke --function-name "$FN" --payload "$PAYLOAD" --region "$REGION" "${PROFILE_ARG[@]}" --cli-binary-format raw-in-base64-out "$OUT" >/dev/null
   if [ ! -f "$OUT" ]; then echo "Error invocando Lambda (restauración)."; exit 2; fi
   echo -e "\nResultado:\n"
   cat restore-data-out.json

@@ -55,9 +55,7 @@ $payload = @{
   dry_run       = $true   # siempre hacemos previsualización primero
 }
 if (-not $useLatest){ $payload.year=$year; $payload.month=$month; $payload.day=$day; $payload.hour=$hour }
-$json = ($payload | ConvertTo-Json -Depth 6)
-$tmpPayload = Join-Path $env:TEMP ("restore-data-payload-" + [System.Guid]::NewGuid().ToString() + ".json")
-Set-Content -Path $tmpPayload -Value $json -Encoding UTF8
+$json = ($payload | ConvertTo-Json -Depth 6 -Compress)
 
 Write-Host "\nPayload:" -ForegroundColor Cyan
 Write-Host $json -ForegroundColor DarkGray
@@ -65,7 +63,7 @@ Write-Host $json -ForegroundColor DarkGray
 Write-Host "\nPrevisualización (dry-run) en $fn ..." -ForegroundColor Yellow
 $previewFile = Join-Path $PSScriptRoot "restore-data-preview.json"
 Remove-Item -Path $previewFile -ErrorAction SilentlyContinue
-aws lambda invoke --function-name $fn --payload "fileb://$tmpPayload" --region $Region --cli-binary-format raw-in-base64-out "$previewFile" | Out-Null
+aws lambda invoke --function-name $fn --payload $json --region $Region --cli-binary-format raw-in-base64-out "$previewFile" | Out-Null
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $previewFile)) { Write-Host "Error invocando la Lambda (preview). Revisa credenciales/permiso y nombre de función." -ForegroundColor Red; exit 2 }
 $preview = Get-Content $previewFile | ConvertFrom-Json
 Write-Host "Resultado (preview):" -ForegroundColor Cyan
@@ -79,12 +77,11 @@ if (-not (YesNo "¿Ejecutar copia con dry_run=false ahora?" $true)) { Write-Host
 
 # Ejecutar restauración real
 $payload.dry_run = $false
-$json = ($payload | ConvertTo-Json -Depth 6)
-Set-Content -Path $tmpPayload -Value $json -Encoding UTF8
+$json = ($payload | ConvertTo-Json -Depth 6 -Compress)
 Write-Host "\nEjecutando restauración..." -ForegroundColor Yellow
 $outFile = Join-Path $PSScriptRoot "restore-data-out.json"
 Remove-Item -Path $outFile -ErrorAction SilentlyContinue
-aws lambda invoke --function-name $fn --payload "fileb://$tmpPayload" --region $Region --cli-binary-format raw-in-base64-out "$outFile" | Out-Null
+aws lambda invoke --function-name $fn --payload $json --region $Region --cli-binary-format raw-in-base64-out "$outFile" | Out-Null
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outFile)) { Write-Host "Error invocando la Lambda (restauración)." -ForegroundColor Red; exit 2 }
 Write-Host "Resultado:" -ForegroundColor Cyan
 Get-Content $outFile
