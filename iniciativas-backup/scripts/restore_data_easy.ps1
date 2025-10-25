@@ -89,3 +89,5 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outFile)) { Write-Host "Error invoc
 Write-Host "Resultado:" -ForegroundColor Cyan
 Get-Content $outFile
 Write-Host "\nListo." -ForegroundColor Green
+
+

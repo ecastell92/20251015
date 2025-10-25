@@ -20,6 +20,7 @@ Examples:
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
@@ -469,6 +470,10 @@ def main() -> int:
     ap.add_argument("--apply-s3-inventory-notifications", action="store_true", help="Also restore S3 Inventory and Notifications")
     args = ap.parse_args()
 
+    # Resolve region default from env if not provided
+    if not args.region:
+        args.region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "eu-west-1"
+
     # Resolve services
     dependency_order = ["iam", "s3", "eventbridge", "stepfunctions", "glue", "athena", "lambda", "dynamodb", "rds"]
     services: List[str] = []
@@ -487,7 +492,28 @@ def main() -> int:
             return 2
 
     session = boto3.session.Session(profile_name=args.profile, region_name=args.region)
+
+    # Pre-flight: validate credentials and bucket access with clear errors
+    try:
+        sts = session.client("sts")
+        ident = sts.get_caller_identity()
+        print(f"Using account {ident.get('Account')} in {args.region}")
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        print(f"ERROR: AWS credentials invalid or expired ({code}). Tipos comunes: InvalidClientTokenId/InvalidAccessKeyId.\n"
+              f"- Ejecuta: aws sso login --profile {args.profile or '<perfil>'}  (si usas SSO)\n"
+              f"- O configura claves: aws configure --profile {args.profile or '<perfil>'}")
+        return 2
+
     s3 = session.client("s3")
+    try:
+        s3.head_bucket(Bucket=args.bucket)
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        print(f"ERROR: No se pudo acceder al bucket {args.bucket} ({code}).\n"
+              f"- Verifica nombre de bucket y cuenta/región ({args.region})\n"
+              f"- Revisa permisos s3:ListBucket/s3:GetObject")
+        return 2
     events = session.client("events")
     sfn = session.client("stepfunctions")
     glue = session.client("glue")
@@ -500,7 +526,12 @@ def main() -> int:
     for svc in services:
         prefix = build_prefix(args.initiative, args.criticality, svc)
         if args.latest:
-            key = find_latest_key(s3, args.bucket, prefix)
+            try:
+                key = find_latest_key(s3, args.bucket, prefix)
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code", "")
+                print(f"ERROR listando objetos bajo {prefix} en {args.bucket} ({code}). Revisa credenciales/permisos.")
+                return 2
             if not key:
                 print(f"No snapshot found for {svc} under s3://{args.bucket}/{prefix}")
                 continue

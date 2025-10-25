@@ -179,7 +179,29 @@ def stream_inventory_to_manifest(
     writer = csv.writer(buffer)
     objects_found = 0
 
-    prefixes = ALLOWED_PREFIXES.get(criticality, [])
+        # ========================================================================
+    # APLICAR FILTROS DE PREFIJOS (solo si no es sweep completo)
+    # ========================================================================
+    # Los sweeps (full backups) ignoran allowed_prefixes para garantizar 
+    # cobertura total. Solo aplican filtros los incrementales.
+
+    ignore_allowed_prefixes = False
+    # Verificar si viene desde un sweep que debe ignorar filtros
+    # (esto se pasa desde el schedule en main.tf)
+    # En el contexto de esta lambda, no tenemos acceso directo al payload del schedule,
+    # pero podemos inferirlo: si backup_type == "full", asumimos sweep completo
+
+    if backup_type == "full":
+        ignore_allowed_prefixes = True
+        prefixes = []  # No aplicar filtros de prefijos en sweeps
+        logger.info(f"🔓 Modo SWEEP COMPLETO: Ignorando allowed_prefixes para {source_bucket}")
+    else:
+        # Incrementales: aplicar filtros normales
+        prefixes = ALLOWED_PREFIXES.get(criticality, [])
+        if prefixes:
+            logger.info(f"🔒 Modo INCREMENTAL: Aplicando prefijos permitidos: {prefixes}")
+        else:
+            logger.info(f"🔓 Modo INCREMENTAL sin filtros: Copiando todos los objetos")
     indices = get_column_indices(manifest["fileSchema"])
     idx_bucket = indices["bucket"]
     idx_key = indices["key"]

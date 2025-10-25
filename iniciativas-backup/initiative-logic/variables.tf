@@ -78,6 +78,16 @@ variable "backup_tags" {
 }
 
 # ---------------------------------------------------------------------------
+# MONITOREO / DASHBOARD
+# ---------------------------------------------------------------------------
+
+variable "enable_cloudwatch_dashboard" {
+  description = "Crear un CloudWatch Dashboard con métricas de Lambdas, SQS, Step Functions, S3 y coste (Billing)"
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
 # BACKUP CONFIGURATIONS (Lambda) - toggles y filtros
 # ---------------------------------------------------------------------------
 

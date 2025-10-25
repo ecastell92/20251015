@@ -127,67 +127,101 @@ def get_bucket_criticality(bucket_name: str) -> str:
 
 def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     """
-    Aplica exclusiones (prefijo/sufijo y marcadores de carpeta) e inclusiones por criticidad.
+    Aplica filtros de inclusión/exclusión para incrementales.
     
-    CORREGIDO: Exclusiones menos agresivas - solo excluye si el prefijo está:
-    1. Al inicio del path (startswith)
-    2. Precedido por / (para subdirectorios)
+    LÓGICA MEJORADA:
+    1. Marcadores de carpeta (/) → SIEMPRE excluir
+    2. Exclusiones explícitas (prefijos/sufijos) → Excluir si match exacto
+    3. Allowed prefixes:
+       - Si vacío → INCLUIR TODO (excepto exclusiones anteriores)
+       - Si definido → INCLUIR solo si dentro de prefijos
     
-    NO excluye si el prefijo aparece en medio de un nombre de archivo/carpeta sin / delante.
+    IMPORTANTE: Esta función SOLO se usa en incrementales.
+    Los sweeps (full backups) ignoran allowed_prefixes desde el código de filter_inventory.
     """
-    # 1. Excluir marcadores de carpeta
+    
+    # ========================================================================
+    # PASO 1: Excluir marcadores de carpeta (OBLIGATORIO)
+    # ========================================================================
     if object_key.endswith('/'):
-        logger.debug(f"Excluido (marcador de carpeta): {object_key}")
+        logger.debug(f"❌ Excluido (marcador de carpeta): {object_key}")
         return False
 
-    # 2. Cargar exclusiones desde entorno
+    # ========================================================================
+    # PASO 2: Cargar listas de exclusión desde variables de entorno
+    # ========================================================================
     def _parse_list(name: str) -> List[str]:
+        """Parse lista desde env var (soporta JSON o CSV)"""
         raw = os.environ.get(name, '')
-        if not raw:
+        if not raw or raw == '[]':
             return []
         try:
+            # Intentar parsear como JSON
             vals = json.loads(raw)
-            return [v for v in vals if isinstance(v, str)]
+            return [v.strip() for v in vals if isinstance(v, str) and v.strip()]
         except Exception:
+            # Fallback: parsear como CSV
             return [s.strip() for s in raw.split(',') if s.strip()]
 
     ex_prefixes = _parse_list('EXCLUDE_KEY_PREFIXES')
     ex_suffixes = _parse_list('EXCLUDE_KEY_SUFFIXES')
 
-    # 3. Excluir por prefijo - CORREGIDO: Solo al inicio o precedido por /
+    # ========================================================================
+    # PASO 3: Aplicar exclusiones por PREFIJO
+    # ========================================================================
+    # LÓGICA CORREGIDA: Solo excluir si el prefijo está:
+    # a) Al inicio del path: "temporary/file.txt"
+    # b) Precedido por /: "data/temporary/file.txt"
+    # 
+    # NO excluir si el prefijo aparece en medio de un nombre sin /:
+    # Ejemplo: "data/important_temporary_results.txt" NO se excluye
     for p in ex_prefixes:
         if not p:
             continue
-        # Normalizar prefijo para comparación
+        
         p_normalized = p.rstrip('/')
         
-        # Excluir si:
-        # - Empieza con el prefijo: "temporary/file.txt"
-        # - Tiene el prefijo precedido por /: "data/temporary/file.txt"
-        if object_key.startswith(p_normalized + '/') or object_key.startswith(p_normalized):
-            logger.debug(f"Excluido (prefijo al inicio): {object_key} (match: {p})")
+        # Caso A: Empieza con el prefijo
+        if object_key.startswith(f"{p_normalized}/"):
+            logger.debug(f"❌ Excluido (prefijo al inicio): {object_key} → match: {p}")
             return False
+        
+        # Caso B: Prefijo en subdirectorio
         if f"/{p_normalized}/" in object_key:
-            logger.debug(f"Excluido (prefijo en subdirectorio): {object_key} (match: {p})")
+            logger.debug(f"❌ Excluido (prefijo en subdirectorio): {object_key} → match: {p}")
             return False
     
-    # 4. Excluir por sufijo
-    if any(object_key.endswith(s) for s in ex_suffixes):
-        logger.debug(f"Excluido (sufijo): {object_key}")
-        return False
+    # ========================================================================
+    # PASO 4: Aplicar exclusiones por SUFIJO
+    # ========================================================================
+    for s in ex_suffixes:
+        if s and object_key.endswith(s):
+            logger.debug(f"❌ Excluido (sufijo): {object_key} → match: {s}")
+            return False
 
-    # 5. Aplicar prefijos permitidos por criticidad (inclusión)
-    prefixes = ALLOWED_PREFIXES.get(criticality, [])
-    effective = [p for p in prefixes if isinstance(p, str) and p.strip() != ""]
-    if not effective:
-        # Sin filtro = todo permitido (excepto exclusiones anteriores)
+    # ========================================================================
+    # PASO 5: Aplicar INCLUSIONES por allowed_prefixes (OPCIONAL)
+    # ========================================================================
+    allowed = ALLOWED_PREFIXES.get(criticality, [])
+    effective_allowed = [p.strip() for p in allowed if isinstance(p, str) and p.strip()]
+    
+    # Si NO hay prefijos permitidos definidos → INCLUIR TODO
+    if not effective_allowed:
+        logger.debug(f"✅ Incluido (sin filtro de prefijos): {object_key}")
         return True
-    for p in effective:
-        pn = p.rstrip('/')
-        if object_key.startswith(pn + '/') or object_key.startswith(pn):
+    
+    # Si HAY prefijos definidos, verificar que el objeto esté dentro de alguno
+    for p in effective_allowed:
+        p_normalized = p.rstrip('/')
+        
+        # Match si el objeto está bajo el prefijo
+        if object_key.startswith(f"{p_normalized}/") or object_key == p_normalized:
+            logger.debug(f"✅ Incluido (prefijo permitido): {object_key} → match: {p}")
             return True
+    
+    # No está en ningún prefijo permitido
+    logger.debug(f"❌ Excluido (fuera de prefijos permitidos): {object_key}")
     return False
-
 
 # ============================================================================
 # MANIFEST HANDLING WITH STRONG ETag VALIDATION

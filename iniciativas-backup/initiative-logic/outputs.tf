@@ -138,6 +138,11 @@ output "sns_topic_arn" {
   value       = aws_sns_topic.backup_alerts.arn
 }
 
+output "dashboard_name" {
+  description = "Nombre del CloudWatch Dashboard de Backup Ops"
+  value       = try(aws_cloudwatch_dashboard.backup_ops[0].dashboard_name, null)
+}
+
 output "cost_optimization_applied" {
   description = "Resumen de optimizaciones aplicadas"
   value = {

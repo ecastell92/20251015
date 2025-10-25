@@ -655,6 +655,161 @@ resource "aws_lambda_function" "incremental_backup" {
 }
 
 // -----------------------------------------------------------------------------
+// CloudWatch Dashboard (opcional)
+// -----------------------------------------------------------------------------
+
+resource "aws_cloudwatch_dashboard" "backup_ops" {
+  count          = var.enable_cloudwatch_dashboard ? 1 : 0
+  dashboard_name = "${local.prefijo_recursos}-backup-ops-${local.sufijo_recursos}"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type       = "text"
+        width      = 24
+        height     = 2
+        x          = 0
+        y          = 0
+        properties = {
+          markdown = "# Backup Ops Dashboard\nMétricas de Lambdas, SQS, Step Functions, S3 y Coste"
+        }
+      },
+      // Lambdas: Errors/Invocations
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 0
+        y      = 2
+        properties = {
+          title   = "Lambda Errors"
+          view    = "timeSeries"
+          region  = var.aws_region
+          stacked = false
+          metrics = [
+            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat": "Sum" } ],
+            [ ".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat": "Sum" } ]
+          ]
+          period = 300
+        }
+      },
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 12
+        y      = 2
+        properties = {
+          title   = "Lambda Invocations"
+          view    = "timeSeries"
+          region  = var.aws_region
+          stacked = false
+          metrics = [
+            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat": "Sum" } ],
+            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat": "Sum" } ],
+            [ ".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat": "Sum" } ]
+          ]
+          period = 300
+        }
+      },
+
+      // SQS depth
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 0
+        y      = 8
+        properties = {
+          title   = "SQS Queue Depth"
+          view    = "timeSeries"
+          region  = var.aws_region
+          metrics = [
+            [ "AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.s3_events_queue.name, { "stat": "Average" } ],
+            [ ".", "ApproximateNumberOfMessagesNotVisible", ".", ".", { "stat": "Average" } ]
+          ]
+          period = 300
+        }
+      },
+
+      // Step Functions
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 12
+        y      = 8
+        properties = {
+          title   = "Step Functions Executions"
+          view    = "timeSeries"
+          region  = var.aws_region
+          metrics = [
+            [ "AWS/States", "ExecutionsFailed", "StateMachineArn", aws_sfn_state_machine.backup_orchestrator.arn, { "stat": "Sum" } ],
+            [ ".", "ExecutionsSucceeded", ".", ".", { "stat": "Sum" } ]
+          ]
+          period = 300
+        }
+      },
+
+      // S3 Storage (Bucket central)
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 0
+        y      = 14
+        properties = {
+          title   = "S3 Bucket Size (Bytes)"
+          view    = "timeSeries"
+          region  = var.aws_region
+          metrics = [
+            [ "AWS/S3", "BucketSizeBytes", "BucketName", var.central_backup_bucket_name, "StorageType", "StandardStorage", { "stat": "Average", "period": 86400 } ]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 12
+        y      = 14
+        properties = {
+          title   = "S3 Number of Objects"
+          view    = "timeSeries"
+          region  = var.aws_region
+          metrics = [
+            [ "AWS/S3", "NumberOfObjects", "BucketName", var.central_backup_bucket_name, "StorageType", "AllStorageTypes", { "stat": "Average", "period": 86400 } ]
+          ]
+        }
+      },
+
+      // Coste (Billing) - métrica disponible solo en us-east-1
+      {
+        type   = "metric"
+        width  = 24
+        height = 6
+        x      = 0
+        y      = 20
+        properties = {
+          title   = "Estimated Charges (USD)"
+          view    = "timeSeries"
+          region  = "us-east-1"
+          metrics = [
+            [ "AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat": "Maximum" } ]
+          ]
+          period = 21600
+        }
+      }
+    ]
+  })
+}
+
+// -----------------------------------------------------------------------------
 // Restore from Backup - Lambda (S3-only, sin DynamoDB)
 // -----------------------------------------------------------------------------
 
@@ -1147,7 +1302,7 @@ resource "aws_scheduler_schedule" "sweep_schedules" {
 
   name        = "${local.prefijo_recursos}-sweep-${lower(each.key)}-${local.sufijo_recursos}"
   group_name  = aws_scheduler_schedule_group.backup_schedules.name
-  description = "Backup completo (sweep) para ${each.key}"
+  description = "Backup completo (sweep) para ${each.key} - SIN FILTROS"
 
   flexible_time_window { mode = "OFF" }
 
@@ -1158,20 +1313,22 @@ resource "aws_scheduler_schedule" "sweep_schedules" {
     role_arn = aws_iam_role.scheduler_execution_role.arn
 
     input = jsonencode({
-      BackupType  = "full"
-      Criticality = each.key
-      Generation  = "father"
-      Schedule    = each.value.sweep
+      BackupType            = "full"
+      Criticality           = each.key
+      Generation            = "father"
+      Schedule              = each.value.sweep
+      IgnoreAllowedPrefixes = true # ← NUEVO: Indica a filter_inventory que ignore filtros
     })
   }
 }
+
 
 resource "aws_scheduler_schedule" "grandfather_schedules" {
   for_each = { for k, v in var.schedule_expressions : k => v if try(v.grandfather, null) != null && trimspace(v.grandfather) != "" }
 
   name        = "${local.prefijo_recursos}-grandfather-${lower(each.key)}-${local.sufijo_recursos}"
   group_name  = aws_scheduler_schedule_group.backup_schedules.name
-  description = "Backup completo (grandfather) para ${each.key}"
+  description = "Backup completo (grandfather) para ${each.key} - SIN FILTROS"
 
   flexible_time_window { mode = "OFF" }
 
@@ -1182,14 +1339,14 @@ resource "aws_scheduler_schedule" "grandfather_schedules" {
     role_arn = aws_iam_role.scheduler_execution_role.arn
 
     input = jsonencode({
-      BackupType  = "full"
-      Criticality = each.key
-      Generation  = "grandfather"
-      Schedule    = each.value.grandfather
+      BackupType            = "full"
+      Criticality           = each.key
+      Generation            = "grandfather"
+      Schedule              = each.value.grandfather
+      IgnoreAllowedPrefixes = true # ← NUEVO: Sweeps completos sin filtros
     })
   }
 }
-
 // ============================================================================
 // Backup de Configuraciones AWS
 // ============================================================================
@@ -1226,7 +1383,7 @@ resource "aws_iam_role_policy" "backup_configurations" {
           "s3:PutObject",
           "s3:GetObject"
         ],
-    Resource = "${local.central_backup_bucket_arn}/backup/configurations/*"
+        Resource = "${local.central_backup_bucket_arn}/backup/configurations/*"
       },
       {
         Sid    = "AllowS3ReadBucketConfigurations",

@@ -30,3 +30,4 @@ iniciativas-backup/.terraform/modules/modules.json
 iniciativas-backup/.terraform/providers/registry.terraform.io/hashicorp/null/3.2.4/windows_amd64/LICENSE.txt
 iniciativas-backup/.terraform/providers/registry.terraform.io/hashicorp/null/3.2.4/windows_amd64/terraform-provider-null_v3.2.4_x5.exe
 iniciativas-backup/terraform.tfvars.bak
+iniciativas-backup/examples/aurora-mysql-mini/.terraform.lock.hcl

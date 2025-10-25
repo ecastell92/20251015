@@ -342,15 +342,15 @@ variable "disable_window_checkpoint" {
 
 # Prefijos/sufijos a excluir en incrementales (opcional)
 variable "exclude_key_prefixes" {
-  description = "Prefijos a excluir en incrementales (p. ej. temporales)"
+  description = "Prefijos a excluir en incrementales. VACÍO por defecto = copiar todo menos exclusiones técnicas."
   type        = list(string)
-  default     = [""]
+  default     = [] # ✅ CORREGIDO: Vacío por defecto
 }
 
 variable "exclude_key_suffixes" {
-  description = "Sufijos a excluir en incrementales (p. ej. .inprogress o marcadores de carpeta)"
+  description = "Sufijos a excluir. Por defecto SOLO marcadores de carpeta."
   type        = list(string)
-  default     = [".inprogress", "/"]
+  default     = ["/"] # ✅ CORREGIDO: Solo marcadores de carpeta
 }
 
 # Nivel de log para Lambda incremental
@@ -405,4 +405,11 @@ variable "enable_central_bucket" {
   description = "Crear el bucket central de S3 (recursos S3 del modulo central_resources)"
   type        = bool
   default     = true
+}
+
+
+variable "enable_cloudwatch_dashboard" {
+  description = "Habilitar dashboard de CloudWatch para monitoreo de backups"
+  type        = bool
+  default     = false
 }
