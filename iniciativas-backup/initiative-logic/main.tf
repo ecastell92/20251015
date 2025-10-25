@@ -903,6 +903,118 @@ resource "aws_lambda_function" "restore_from_backup" {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Step Function de Restauración
+resource "aws_iam_role" "restore_step_function" {
+  name = "${local.prefijo_recursos}-restore-step-role-${local.sufijo_recursos}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action    = "sts:AssumeRole",
+        Effect    = "Allow",
+        Principal = { Service = "states.amazonaws.com" }
+      }
+    ]
+  })
+
+  tags = {
+    Initiative  = var.iniciativa
+    Environment = var.environment
+  }
+}
+
+resource "aws_iam_role_policy" "restore_step_function" {
+  name = "${local.prefijo_recursos}-restore-step-policy-${local.sufijo_recursos}"
+  role = aws_iam_role.restore_step_function.name
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "AllowInvokeRestoreLambda",
+        Effect = "Allow",
+        Action = [
+          "lambda:InvokeFunction"
+        ],
+        Resource = [
+          aws_lambda_function.restore_from_backup.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_sfn_state_machine" "restore_orchestrator" {
+  name     = "${local.prefijo_recursos}-s3-restore-orchestrator-${local.sufijo_recursos}"
+  role_arn = aws_iam_role.restore_step_function.arn
+
+  definition = jsonencode({
+    Comment = "Restore orchestrator for S3 backups",
+    StartAt = "DetermineMode",
+    States = {
+      DetermineMode = {
+        Type    = "Choice",
+        Choices = [
+          {
+            Variable  = "$.restore_requests",
+            IsPresent = true,
+            Next      = "RestoreMap"
+          },
+          {
+            Variable  = "$.request",
+            IsPresent = true,
+            Next      = "SingleRestore"
+          }
+        ],
+        Default = "InvalidInput"
+      },
+      SingleRestore = {
+        Type       = "Task",
+        Resource   = aws_lambda_function.restore_from_backup.arn,
+        Parameters = {
+          "Payload.$" = "States.JsonMerge(States.JsonMerge(States.StringToJson('{}'), $.defaults, false), $.request, false)"
+        },
+        ResultPath = "$.result",
+        End        = true
+      },
+      RestoreMap = {
+        Type           = "Map",
+        ItemsPath      = "$.restore_requests",
+        MaxConcurrency = 5,
+        Parameters = {
+          "Request.$"  = "$$.Map.Item.Value",
+          "Defaults.$" = "States.JsonMerge(States.StringToJson('{}'), $.defaults, false)"
+        },
+        Iterator = {
+          StartAt = "InvokeRestore",
+          States = {
+            InvokeRestore = {
+              Type       = "Task",
+              Resource   = aws_lambda_function.restore_from_backup.arn,
+              Parameters = {
+                "Payload.$" = "States.JsonMerge($.Defaults, $.Request, false)"
+              },
+              ResultPath = "$.result",
+              End        = true
+            }
+          }
+        },
+        ResultPath = "$.results",
+        End        = true
+      },
+      InvalidInput = {
+        Type  = "Fail",
+        Error = "InvalidInput",
+        Cause = "Debe proveer 'request' o 'restore_requests'."
+      }
+    }
+  })
+
+  tags = var.backup_tags
+}
+
 resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn = aws_sqs_queue.s3_events_queue.arn
   function_name    = aws_lambda_function.incremental_backup.function_name

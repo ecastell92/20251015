@@ -236,7 +236,8 @@ output "validation_commands" {
   ========================================
   
   Bucket Central: ${var.enable_s3_backups && var.enable_central_bucket ? module.central_resources.central_backup_bucket_name : "(S3 deshabilitado)"}
-  State Machine: ${var.enable_s3_backups ? module.initiative_logic[0].state_machine_arn : "(S3 deshabilitado)"}
+  State Machine (Backups): ${var.enable_s3_backups ? module.initiative_logic[0].state_machine_arn : "(S3 deshabilitado)"}
+  State Machine (Restauración): ${var.enable_s3_backups ? module.initiative_logic[0].restore_state_machine_arn : "(S3 deshabilitado)"}
   SQS Queue: ${var.enable_s3_backups ? module.initiative_logic[0].sqs_queue_url : "(S3 deshabilitado)"}
   
   Próximos pasos:
@@ -391,6 +392,11 @@ output "central_bucket_arn" {
 output "state_machine_arn" {
   description = "ARN de la Step Function orquestadora"
   value       = var.enable_s3_backups ? module.initiative_logic[0].state_machine_arn : null
+}
+
+output "restore_state_machine_arn" {
+  description = "ARN de la Step Function de restauración"
+  value       = var.enable_s3_backups ? module.initiative_logic[0].restore_state_machine_arn : null
 }
 
 output "cost_optimization_summary" {
