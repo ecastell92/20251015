@@ -12,6 +12,16 @@ output "state_machine_name" {
   value       = aws_sfn_state_machine.backup_orchestrator.name
 }
 
+output "restore_state_machine_arn" {
+  description = "ARN de la Step Function orquestadora de restauraciones"
+  value       = aws_sfn_state_machine.restore_orchestrator.arn
+}
+
+output "restore_state_machine_name" {
+  description = "Nombre de la Step Function de restauración"
+  value       = aws_sfn_state_machine.restore_orchestrator.name
+}
+
 output "find_resources_lambda_arn" {
   description = "ARN de la Lambda find_resources"
   value       = aws_lambda_function.find_resources.arn

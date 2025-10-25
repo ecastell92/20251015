@@ -134,6 +134,25 @@ Notas:
 - Usa “prefijo” para acotar (ej. `output/`).
 - Los wrappers realizan SIEMPRE una previsualización (dry‑run) primero y muestran `manifest_key` y `data_prefix`; si confirmas, ejecutan la copia real con `dry_run=false`.
 
+### 6.3 Orquestación de restauraciones con Step Functions
+
+Además de invocar la Lambda directamente, ahora existe la Step Function `${tenant}-${env}-s3-restore-orchestrator-${sufijo}` que permite agrupar restauraciones múltiples o aplicar valores por defecto comunes. Ejemplo de ejecución:
+
+```bash
+aws stepfunctions start-execution \
+  --state-machine-arn $(terraform output -raw restore_state_machine_arn) \
+  --input '{
+    "defaults": {"criticality": "Critico", "backup_type": "incremental", "generation": "son"},
+    "restore_requests": [
+      {"source_bucket": "app-prod-raw", "dry_run": true},
+      {"source_bucket": "app-prod-curated", "prefix": "2024/", "dry_run": false}
+    ]
+  }'
+```
+
+- Usa `request` en lugar de `restore_requests` para ejecutar un único flujo: `{"request": {"source_bucket": "..."}}`.
+- `defaults` es opcional; cuando está presente, se fusiona con cada petición, permitiendo definir criticidad, tipo de backup, generación o `max_objects` comunes.
+
 ## 7. Limpieza y destroy
 
 Al ejecutar `terraform destroy`, se invoca `scripts/cleanup_s3_backup_configs.py` para eliminar Inventory y notificaciones S3→SQS de los buckets `BackupEnabled=true`.
