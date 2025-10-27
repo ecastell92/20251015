@@ -408,8 +408,4 @@ output "cost_optimization_summary" {
   }
 }
 
-// ============================================================================
-// MÓDULO 3: RESTORE LITE (independiente)
-// ============================================================================
-// Restaura DATA desde el bucket central hacia buckets origen usando S3 Batch + Lambda
 
