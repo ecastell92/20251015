@@ -40,20 +40,17 @@ variable "iniciativa" {
 # BUCKET CENTRAL - NOMENCLATURA UNIFICADA
 # ─────────────────────────────────────────────────────────────────────────────
 
-# variable "central_backup_bucket_name" {
-#   description = "Nombre COMPLETO del bucket central de backups (debe ser globalmente único)"
-#   type        = string
-
-#   validation {
-#     condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.central_backup_bucket_name))
-#     error_message = "El nombre del bucket debe cumplir con las reglas de S3: minúsculas, números, guiones, 3-63 caracteres."
-#   }
-# }
-
-variable "central_backup_vault_name" {
-  description = "Nombre del AWS Backup Vault"
+variable "central_backup_bucket_name" {
+  description = "Nombre COMPLETO del bucket central de backups (debe ser globalmente único)"
   type        = string
 }
+
+variable "central_backup_vault_name" {
+  description = "Nombre del vault de backups (debe ser globalmente único)"
+  type        = string
+}
+
+
 
 # Controla si se crea el bucket central de S3 (si solo usas RDS/DynamoDB, desactivarlo)
 variable "enable_central_bucket" {

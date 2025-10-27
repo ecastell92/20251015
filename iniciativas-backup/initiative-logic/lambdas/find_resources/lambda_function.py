@@ -34,11 +34,7 @@ INVENTORY_ID = "AutoBackupInventory"
 # Para 20 buckets con 10M objetos: $11,750/mes → $2,108/mes = $9,642/mes ahorrados
 # ============================================================================
 
-INVENTORY_FREQUENCIES = {
-    "Critico": "Weekly",
-    "MenosCritico": "Weekly",
-    "NoCritico": "Weekly"
-}
+INVENTORY_FREQUENCIES = {"Critico": "Weekly", "MenosCritico": "Weekly", "NoCritico": "Weekly"}
 
 # Criticidades que requieren notificaciones SQS (solo las que tienen incrementales)
 # Se puede configurar via env con lista separada por comas; por defecto solo "Critico"
@@ -53,6 +49,7 @@ else:
 # ACCOUNT RESOLUTION (Single-account friendly)
 # ============================================================================
 
+
 def resolve_central_account_id() -> str:
     """Obtiene el Account ID donde vive el bucket central."""
 
@@ -61,9 +58,7 @@ def resolve_central_account_id() -> str:
         logger.debug("Usando CENTRAL_ACCOUNT_ID proporcionado por entorno")
         return env_value
 
-    logger.info(
-        "CENTRAL_ACCOUNT_ID no definido; resolviendo via STS (despliegue single-account)"
-    )
+    logger.info("CENTRAL_ACCOUNT_ID no definido; resolviendo via STS (despliegue single-account)")
 
     try:
         identity = sts_client.get_caller_identity()
@@ -81,25 +76,25 @@ def resolve_central_account_id() -> str:
 # INVENTORY CONFIGURATION
 # ============================================================================
 
+
 def create_inventory_configuration(
-    bucket_name: str, 
-    central_bucket_name: str, 
-    central_account_id: str,
-    frequency: str = "Weekly"
+    bucket_name: str, central_bucket_name: str, central_account_id: str, frequency: str = "Weekly"
 ):
     """
     Crea la configuración de inventario en el bucket origen.
     Sin cifrado KMS - el bucket central usa AES256 por defecto.
-    
+
     Args:
         bucket_name: Nombre del bucket origen
         central_bucket_name: Nombre del bucket central donde se guardan inventarios
         central_account_id: ID de la cuenta central
         frequency: Frecuencia del inventario ("Daily" o "Weekly")
     """
-    logger.info(f"Creando inventario '{INVENTORY_ID}' en bucket '{bucket_name}' con frecuencia {frequency}")
+    logger.info(
+        f"Creando inventario '{INVENTORY_ID}' en bucket '{bucket_name}' con frecuencia {frequency}"
+    )
 
-    # Configuración del destino 
+    # Configuración del destino
     s3_destination = {
         "AccountId": central_account_id,
         "Bucket": f"arn:aws:s3:::{central_bucket_name}",
@@ -116,20 +111,20 @@ def create_inventory_configuration(
                 "IsEnabled": True,
                 "IncludedObjectVersions": "Current",
                 "OptionalFields": [
-                    "Size", 
-                    "LastModifiedDate", 
-                    "StorageClass", 
+                    "Size",
+                    "LastModifiedDate",
+                    "StorageClass",
                     "ETag",
-                    "EncryptionStatus", 
-                    "ReplicationStatus", 
-                    "IsMultipartUploaded"
+                    "EncryptionStatus",
+                    "ReplicationStatus",
+                    "IsMultipartUploaded",
                 ],
                 "Schedule": {"Frequency": frequency},
                 "Destination": {"S3BucketDestination": s3_destination},
             },
         )
         logger.info(f"Inventario {frequency} creado correctamente en '{bucket_name}'")
-    
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         logger.error(f"Error creando inventario en '{bucket_name}': {error_code} - {e}")
@@ -137,15 +132,12 @@ def create_inventory_configuration(
 
 
 def ensure_inventory_exists(
-    bucket_name: str, 
-    central_bucket_name: str, 
-    central_account_id: str,
-    frequency: str = "Weekly"
+    bucket_name: str, central_bucket_name: str, central_account_id: str, frequency: str = "Weekly"
 ):
     """
     Asegura que el inventario exista y esté actualizado en el bucket origen.
     Verifica frecuencia configurada y actualiza si es necesario.
-    
+
     Args:
         bucket_name: Nombre del bucket origen
         central_bucket_name: Nombre del bucket central
@@ -153,10 +145,7 @@ def ensure_inventory_exists(
         frequency: Frecuencia esperada del inventario
     """
     try:
-        existing = s3_client.get_bucket_inventory_configuration(
-            Bucket=bucket_name, 
-            Id=INVENTORY_ID
-        )
+        existing = s3_client.get_bucket_inventory_configuration(Bucket=bucket_name, Id=INVENTORY_ID)
         current_freq = existing["InventoryConfiguration"]["Schedule"]["Frequency"]
 
         if current_freq != frequency:
@@ -164,16 +153,24 @@ def ensure_inventory_exists(
                 f"Inventario en '{bucket_name}' tiene frecuencia '{current_freq}', "
                 f"actualizando a {frequency} (optimización de costes)..."
             )
-            create_inventory_configuration(bucket_name, central_bucket_name, central_account_id, frequency)
+            create_inventory_configuration(
+                bucket_name, central_bucket_name, central_account_id, frequency
+            )
         else:
-            logger.info(f"Inventario '{INVENTORY_ID}' ya configurado en '{bucket_name}' con frecuencia {frequency}")
-    
+            logger.info(
+                f"Inventario '{INVENTORY_ID}' ya configurado en '{bucket_name}' con frecuencia {frequency}"
+            )
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        
+
         if error_code == "NoSuchConfiguration":
-            logger.info(f"No existe inventario en '{bucket_name}', creando con frecuencia {frequency}...")
-            create_inventory_configuration(bucket_name, central_bucket_name, central_account_id, frequency)
+            logger.info(
+                f"No existe inventario en '{bucket_name}', creando con frecuencia {frequency}..."
+            )
+            create_inventory_configuration(
+                bucket_name, central_bucket_name, central_account_id, frequency
+            )
         else:
             logger.error(f"Error verificando inventario en '{bucket_name}': {error_code} - {e}")
             raise
@@ -182,6 +179,7 @@ def ensure_inventory_exists(
 # ============================================================================
 # EVENT NOTIFICATIONS
 # ============================================================================
+
 
 def ensure_event_notification_is_configured(bucket_name: str, queue_arn: str):
     """
@@ -194,40 +192,48 @@ def ensure_event_notification_is_configured(bucket_name: str, queue_arn: str):
     try:
         current_config = s3_client.get_bucket_notification_configuration(Bucket=bucket_name)
         current_config.pop("ResponseMetadata", None)
-        
+
         queue_configs = current_config.get("QueueConfigurations", [])
-        
+
         if any(q.get("Id") == notification_id for q in queue_configs):
             logger.info(f"Notificación '{notification_id}' ya existe en '{bucket_name}'")
             pass
-        
-        current_config.setdefault("QueueConfigurations", []).append({
-            "Id": notification_id,
-            "QueueArn": queue_arn,
-            "Events": ["s3:ObjectCreated:*"],
-        })
+
+        current_config.setdefault("QueueConfigurations", []).append(
+            {
+                "Id": notification_id,
+                "QueueArn": queue_arn,
+                "Events": ["s3:ObjectCreated:*"],
+            }
+        )
         # Normalizar: dejar una sola entrada por QueueArn para ObjectCreated
         qcfgs = current_config.get("QueueConfigurations", [])
+
         def _is_object_created(cfg):
             return any(str(e).startswith("s3:ObjectCreated") for e in cfg.get("Events", []))
+
         qcfgs = [q for q in qcfgs if not (q.get("QueueArn") == queue_arn and _is_object_created(q))]
-        qcfgs.append({
-            "Id": notification_id,
-            "QueueArn": queue_arn,
-            "Events": ["s3:ObjectCreated:*"],
-        })
+        qcfgs.append(
+            {
+                "Id": notification_id,
+                "QueueArn": queue_arn,
+                "Events": ["s3:ObjectCreated:*"],
+            }
+        )
         current_config["QueueConfigurations"] = qcfgs
-    
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        
+
         if error_code == "NoSuchConfiguration":
             current_config = {
-                "QueueConfigurations": [{
-                    "Id": notification_id,
-                    "QueueArn": queue_arn,
-                    "Events": ["s3:ObjectCreated:*"],
-                }]
+                "QueueConfigurations": [
+                    {
+                        "Id": notification_id,
+                        "QueueArn": queue_arn,
+                        "Events": ["s3:ObjectCreated:*"],
+                    }
+                ]
             }
         else:
             logger.error(f"Error obteniendo notificaciones de '{bucket_name}': {e}")
@@ -271,27 +277,28 @@ def remove_event_notification_if_exists(bucket_name: str):
     Elimina la notificación SQS si existe (para buckets que no requieren incrementales).
     """
     notification_id = "BckIncrementalTrigger-SQS"
-    
+
     try:
         current_config = s3_client.get_bucket_notification_configuration(Bucket=bucket_name)
         current_config.pop("ResponseMetadata", None)
-        
+
         queue_configs = current_config.get("QueueConfigurations", [])
-        
+
         # Filtrar para remover nuestra notificación
         updated_configs = [q for q in queue_configs if q.get("Id") != notification_id]
-        
+
         if len(updated_configs) < len(queue_configs):
             current_config["QueueConfigurations"] = updated_configs
-            
+
             s3_client.put_bucket_notification_configuration(
-                Bucket=bucket_name,
-                NotificationConfiguration=current_config
+                Bucket=bucket_name, NotificationConfiguration=current_config
             )
-            logger.info(f"Notificación SQS eliminada de '{bucket_name}' (no requiere incrementales)")
+            logger.info(
+                f"Notificación SQS eliminada de '{bucket_name}' (no requiere incrementales)"
+            )
         else:
             logger.debug(f"✓ No había notificación SQS en '{bucket_name}' (correcto)")
-    
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
         if error_code == "NoSuchConfiguration":
@@ -304,6 +311,7 @@ def remove_event_notification_if_exists(bucket_name: str):
 # CRITICALITY DETECTION
 # ============================================================================
 
+
 def get_bucket_criticality(bucket_name: str) -> str:
     """Obtiene la criticidad del bucket desde sus tags."""
     try:
@@ -314,12 +322,14 @@ def get_bucket_criticality(bucket_name: str) -> str:
         )
         logger.debug(f"Bucket '{bucket_name}' → Criticidad: {criticality}")
         return criticality
-    
+
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
-        
+
         if error_code == "NoSuchTagSet":
-            logger.warning(f"Bucket '{bucket_name}' sin tags. Usando criticidad por defecto: {DEFAULT_CRITICALITY}")
+            logger.warning(
+                f"Bucket '{bucket_name}' sin tags. Usando criticidad por defecto: {DEFAULT_CRITICALITY}"
+            )
             return DEFAULT_CRITICALITY
         else:
             logger.error(f"Error obteniendo tags de '{bucket_name}': {e}")
@@ -330,16 +340,17 @@ def get_bucket_criticality(bucket_name: str) -> str:
 # LAMBDA HANDLER
 # ============================================================================
 
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[str, str]]]:
     """
     Handler principal para descubrir y configurar buckets S3 para backup.
-    
+
     Returns:
         Dict con lista de buckets configurados y sus metadatos
     """
-    logger.info("="*80)
+    logger.info("=" * 80)
     logger.info("Iniciando descubrimiento de buckets para backup")
-    logger.info("="*80)
+    logger.info("=" * 80)
 
     # Validar variables de entorno
     try:
@@ -356,18 +367,17 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[s
 
     # Buscar buckets con BackupEnabled=true
     logger.info(f"Buscando buckets con tag {BACKUP_TAG_KEY}=true")
-    
+
     paginator = resource_tag_client.get_paginator("get_resources")
     source_bucket_arns = []
-    
+
     try:
         for page in paginator.paginate(
-            TagFilters=[{"Key": BACKUP_TAG_KEY, "Values": ["true"]}],
-            ResourceTypeFilters=["s3"]
+            TagFilters=[{"Key": BACKUP_TAG_KEY, "Values": ["true"]}], ResourceTypeFilters=["s3"]
         ):
             for resource in page.get("ResourceTagMappingList", []):
                 source_bucket_arns.append(resource["ResourceARN"])
-    
+
     except ClientError as e:
         logger.error(f"Error buscando recursos etiquetados: {e}")
         raise
@@ -384,23 +394,23 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[s
 
     for arn in source_bucket_arns:
         bucket_name = arn.split(":::")[-1]
-        
+
         try:
             logger.info(f"\n{'='*80}")
             logger.info(f"Procesando bucket: {bucket_name}")
-            
+
             # Obtener criticidad
             criticality = get_bucket_criticality(bucket_name)
             logger.info(f"Criticidad: {criticality}")
-            
+
             # Obtener frecuencia de inventario según criticidad
             inventory_freq = INVENTORY_FREQUENCIES.get(criticality, "Weekly")
             logger.info(f"Frecuencia de inventory: {inventory_freq}")
-            
+
             # DECISIÓN 1: Configurar inventory con frecuencia apropiada
             logger.info(f"Configurando inventory {inventory_freq}...")
             ensure_inventory_exists(bucket_name, central_bucket, central_account_id, inventory_freq)
-            
+
             # DECISIÓN 2: Notificaciones SQS (solo si requiere incrementales)
             if criticality in CRITICALITIES_WITH_NOTIFICATIONS:
                 logger.info(f"Configurando notificaciones SQS (incrementales habilitados)")
@@ -408,33 +418,34 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, List[Dict[s
             else:
                 logger.info(f"Omitiendo notificaciones SQS (sin incrementales)")
                 remove_event_notification_if_exists(bucket_name)
-            
+
             # Agregar a lista de respaldo
-            resources_to_backup.append({
-                "source_bucket": bucket_name,
-                "inventory_key": f"inventory-source/{bucket_name}/{INVENTORY_ID}/",
-                "criticality": criticality,
-                "backup_bucket": central_bucket,
-            })
-            
+            resources_to_backup.append(
+                {
+                    "source_bucket": bucket_name,
+                    "inventory_key": f"inventory-source/{bucket_name}/{INVENTORY_ID}/",
+                    "criticality": criticality,
+                    "backup_bucket": central_bucket,
+                }
+            )
+
             logger.info(f"Bucket '{bucket_name}' configurado correctamente")
-        
+
         except Exception as e:
             error_msg = f"Error configurando bucket '{bucket_name}': {str(e)}"
             logger.error(f"{error_msg}", exc_info=True)
             errors.append({"bucket": bucket_name, "error": error_msg})
 
-    logger.info("="*80)
+    logger.info("=" * 80)
     logger.info(f"Proceso completado")
     logger.info(f" Buckets configurados: {len(resources_to_backup)}")
     logger.info(f" Errores: {len(errors)}")
-    logger.info("="*80)
+    logger.info("=" * 80)
 
     result = {"Buckets": resources_to_backup}
-    
+
     if errors:
         result["Errors"] = errors
         logger.warning(f"Algunos buckets tuvieron errores: {errors}")
 
     return result
-

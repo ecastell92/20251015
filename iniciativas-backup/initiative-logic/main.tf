@@ -665,11 +665,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
   dashboard_body = jsonencode({
     widgets = [
       {
-        type       = "text"
-        width      = 24
-        height     = 2
-        x          = 0
-        y          = 0
+        type   = "text"
+        width  = 24
+        height = 2
+        x      = 0
+        y      = 0
         properties = {
           markdown = "# Backup Ops Dashboard\nMétricas de Lambdas, SQS, Step Functions, S3 y Coste"
         }
@@ -687,11 +687,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
           region  = var.aws_region
           stacked = false
           metrics = [
-            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat": "Sum" } ],
-            [ ".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat": "Sum" } ]
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Errors", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat" : "Sum" }],
+            [".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat" : "Sum" }]
           ]
           period = 300
         }
@@ -708,11 +708,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
           region  = var.aws_region
           stacked = false
           metrics = [
-            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat": "Sum" } ],
-            [ "AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat": "Sum" } ],
-            [ ".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat": "Sum" } ]
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.find_resources.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.filter_inventory.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.launch_batch_job.function_name, { "stat" : "Sum" }],
+            ["AWS/Lambda", "Invocations", "FunctionName", aws_lambda_function.incremental_backup.function_name, { "stat" : "Sum" }],
+            [".", ".", ".", aws_lambda_function.backup_configurations.function_name, { "stat" : "Sum" }]
           ]
           period = 300
         }
@@ -726,12 +726,12 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         x      = 0
         y      = 8
         properties = {
-          title   = "SQS Queue Depth"
-          view    = "timeSeries"
-          region  = var.aws_region
+          title  = "SQS Queue Depth"
+          view   = "timeSeries"
+          region = var.aws_region
           metrics = [
-            [ "AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.s3_events_queue.name, { "stat": "Average" } ],
-            [ ".", "ApproximateNumberOfMessagesNotVisible", ".", ".", { "stat": "Average" } ]
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", aws_sqs_queue.s3_events_queue.name, { "stat" : "Average" }],
+            [".", "ApproximateNumberOfMessagesNotVisible", ".", ".", { "stat" : "Average" }]
           ]
           period = 300
         }
@@ -745,12 +745,12 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         x      = 12
         y      = 8
         properties = {
-          title   = "Step Functions Executions"
-          view    = "timeSeries"
-          region  = var.aws_region
+          title  = "Step Functions Executions"
+          view   = "timeSeries"
+          region = var.aws_region
           metrics = [
-            [ "AWS/States", "ExecutionsFailed", "StateMachineArn", aws_sfn_state_machine.backup_orchestrator.arn, { "stat": "Sum" } ],
-            [ ".", "ExecutionsSucceeded", ".", ".", { "stat": "Sum" } ]
+            ["AWS/States", "ExecutionsFailed", "StateMachineArn", aws_sfn_state_machine.backup_orchestrator.arn, { "stat" : "Sum" }],
+            [".", "ExecutionsSucceeded", ".", ".", { "stat" : "Sum" }]
           ]
           period = 300
         }
@@ -764,11 +764,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         x      = 0
         y      = 14
         properties = {
-          title   = "S3 Bucket Size (Bytes)"
-          view    = "timeSeries"
-          region  = var.aws_region
+          title  = "S3 Bucket Size (Bytes)"
+          view   = "timeSeries"
+          region = var.aws_region
           metrics = [
-            [ "AWS/S3", "BucketSizeBytes", "BucketName", var.central_backup_bucket_name, "StorageType", "StandardStorage", { "stat": "Average", "period": 86400 } ]
+            ["AWS/S3", "BucketSizeBytes", "BucketName", var.central_backup_bucket_name, "StorageType", "StandardStorage", { "stat" : "Average", "period" : 86400 }]
           ]
         }
       },
@@ -779,11 +779,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         x      = 12
         y      = 14
         properties = {
-          title   = "S3 Number of Objects"
-          view    = "timeSeries"
-          region  = var.aws_region
+          title  = "S3 Number of Objects"
+          view   = "timeSeries"
+          region = var.aws_region
           metrics = [
-            [ "AWS/S3", "NumberOfObjects", "BucketName", var.central_backup_bucket_name, "StorageType", "AllStorageTypes", { "stat": "Average", "period": 86400 } ]
+            ["AWS/S3", "NumberOfObjects", "BucketName", var.central_backup_bucket_name, "StorageType", "AllStorageTypes", { "stat" : "Average", "period" : 86400 }]
           ]
         }
       },
@@ -796,11 +796,11 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         x      = 0
         y      = 20
         properties = {
-          title   = "Estimated Charges (USD)"
-          view    = "timeSeries"
-          region  = "us-east-1"
+          title  = "Estimated Charges (USD)"
+          view   = "timeSeries"
+          region = "us-east-1"
           metrics = [
-            [ "AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat": "Maximum" } ]
+            ["AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat" : "Maximum" }]
           ]
           period = 21600
         }

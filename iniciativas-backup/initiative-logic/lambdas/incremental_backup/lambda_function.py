@@ -41,20 +41,21 @@ except json.JSONDecodeError:
 # FRECUENCIAS CONFIGURABLES
 # ============================================================================
 
+
 def get_frequency_hours(criticality: str) -> Optional[int]:
     """
     Obtiene la frecuencia de ventana en horas desde variables de entorno.
-    
+
     Returns:
         int: Horas de ventana, o None si no requiere incrementales
     """
     env_var_name = f"BACKUP_FREQUENCY_HOURS_{criticality.upper()}"
     freq_str = os.environ.get(env_var_name)
-    
+
     if freq_str is None or freq_str == "" or freq_str == "0":
         logger.debug(f"No se encontró {env_var_name} o está deshabilitado")
         return None
-    
+
     try:
         freq = int(freq_str)
         if freq <= 0:
@@ -65,6 +66,7 @@ def get_frequency_hours(criticality: str) -> Optional[int]:
         logger.error(f"{env_var_name}={freq_str} no es un número válido")
         return None
 
+
 # Caché para no repetir consultas de tags
 bucket_criticality_cache: Dict[str, str] = {}
 
@@ -73,11 +75,14 @@ bucket_criticality_cache: Dict[str, str] = {}
 # CHECKPOINTS (incremental windows)
 # ============================================================================
 
+
 def _window_checkpoint_key(source_bucket: str, criticality: str, window_label: str) -> str:
     return f"checkpoints/incremental/{source_bucket}/{criticality}/{window_label}.marker"
 
 
-def has_window_been_processed(backup_bucket: str, source_bucket: str, criticality: str, window_label: str) -> bool:
+def has_window_been_processed(
+    backup_bucket: str, source_bucket: str, criticality: str, window_label: str
+) -> bool:
     """Returns True if a checkpoint marker exists for this (bucket, criticality, window)."""
     key = _window_checkpoint_key(source_bucket, criticality, window_label)
     try:
@@ -89,7 +94,9 @@ def has_window_been_processed(backup_bucket: str, source_bucket: str, criticalit
         return False
 
 
-def write_window_checkpoint(backup_bucket: str, source_bucket: str, criticality: str, window_label: str):
+def write_window_checkpoint(
+    backup_bucket: str, source_bucket: str, criticality: str, window_label: str
+):
     key = _window_checkpoint_key(source_bucket, criticality, window_label)
     s3_client.put_object(
         Bucket=backup_bucket,
@@ -102,6 +109,7 @@ def write_window_checkpoint(backup_bucket: str, source_bucket: str, criticality:
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def get_bucket_criticality(bucket_name: str) -> str:
     """Obtiene la criticidad del bucket desde tags, con caché."""
@@ -128,22 +136,22 @@ def get_bucket_criticality(bucket_name: str) -> str:
 def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     """
     Aplica filtros de inclusión/exclusión para incrementales.
-    
+
     LÓGICA MEJORADA:
     1. Marcadores de carpeta (/) → SIEMPRE excluir
     2. Exclusiones explícitas (prefijos/sufijos) → Excluir si match exacto
     3. Allowed prefixes:
        - Si vacío → INCLUIR TODO (excepto exclusiones anteriores)
        - Si definido → INCLUIR solo si dentro de prefijos
-    
+
     IMPORTANTE: Esta función SOLO se usa en incrementales.
     Los sweeps (full backups) ignoran allowed_prefixes desde el código de filter_inventory.
     """
-    
+
     # ========================================================================
     # PASO 1: Excluir marcadores de carpeta (OBLIGATORIO)
     # ========================================================================
-    if object_key.endswith('/'):
+    if object_key.endswith("/"):
         logger.debug(f"❌ Excluido (marcador de carpeta): {object_key}")
         return False
 
@@ -152,8 +160,8 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     # ========================================================================
     def _parse_list(name: str) -> List[str]:
         """Parse lista desde env var (soporta JSON o CSV)"""
-        raw = os.environ.get(name, '')
-        if not raw or raw == '[]':
+        raw = os.environ.get(name, "")
+        if not raw or raw == "[]":
             return []
         try:
             # Intentar parsear como JSON
@@ -161,10 +169,10 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
             return [v.strip() for v in vals if isinstance(v, str) and v.strip()]
         except Exception:
             # Fallback: parsear como CSV
-            return [s.strip() for s in raw.split(',') if s.strip()]
+            return [s.strip() for s in raw.split(",") if s.strip()]
 
-    ex_prefixes = _parse_list('EXCLUDE_KEY_PREFIXES')
-    ex_suffixes = _parse_list('EXCLUDE_KEY_SUFFIXES')
+    ex_prefixes = _parse_list("EXCLUDE_KEY_PREFIXES")
+    ex_suffixes = _parse_list("EXCLUDE_KEY_SUFFIXES")
 
     # ========================================================================
     # PASO 3: Aplicar exclusiones por PREFIJO
@@ -172,25 +180,25 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     # LÓGICA CORREGIDA: Solo excluir si el prefijo está:
     # a) Al inicio del path: "temporary/file.txt"
     # b) Precedido por /: "data/temporary/file.txt"
-    # 
+    #
     # NO excluir si el prefijo aparece en medio de un nombre sin /:
     # Ejemplo: "data/important_temporary_results.txt" NO se excluye
     for p in ex_prefixes:
         if not p:
             continue
-        
-        p_normalized = p.rstrip('/')
-        
+
+        p_normalized = p.rstrip("/")
+
         # Caso A: Empieza con el prefijo
         if object_key.startswith(f"{p_normalized}/"):
             logger.debug(f"❌ Excluido (prefijo al inicio): {object_key} → match: {p}")
             return False
-        
+
         # Caso B: Prefijo en subdirectorio
         if f"/{p_normalized}/" in object_key:
             logger.debug(f"❌ Excluido (prefijo en subdirectorio): {object_key} → match: {p}")
             return False
-    
+
     # ========================================================================
     # PASO 4: Aplicar exclusiones por SUFIJO
     # ========================================================================
@@ -204,28 +212,30 @@ def within_allowed_prefixes(criticality: str, object_key: str) -> bool:
     # ========================================================================
     allowed = ALLOWED_PREFIXES.get(criticality, [])
     effective_allowed = [p.strip() for p in allowed if isinstance(p, str) and p.strip()]
-    
+
     # Si NO hay prefijos permitidos definidos → INCLUIR TODO
     if not effective_allowed:
         logger.debug(f"✅ Incluido (sin filtro de prefijos): {object_key}")
         return True
-    
+
     # Si HAY prefijos definidos, verificar que el objeto esté dentro de alguno
     for p in effective_allowed:
-        p_normalized = p.rstrip('/')
-        
+        p_normalized = p.rstrip("/")
+
         # Match si el objeto está bajo el prefijo
         if object_key.startswith(f"{p_normalized}/") or object_key == p_normalized:
             logger.debug(f"✅ Incluido (prefijo permitido): {object_key} → match: {p}")
             return True
-    
+
     # No está en ningún prefijo permitido
     logger.debug(f"❌ Excluido (fuera de prefijos permitidos): {object_key}")
     return False
 
+
 # ============================================================================
 # MANIFEST HANDLING WITH STRONG ETag VALIDATION
 # ============================================================================
+
 
 def upload_manifest(
     criticality: str,
@@ -307,7 +317,7 @@ def upload_manifest(
                 if status == 412 and attempt < max_attempts:
                     # ETag aún no visible; backoff y reintento
                     logger.warning("IfMatch 412: ETag aún no visible; reintentando...")
-                    time.sleep(base_delay * (2 ** attempt))
+                    time.sleep(base_delay * (2**attempt))
                     continue
                 raise
 
@@ -315,10 +325,12 @@ def upload_manifest(
             return manifest_key, put_etag, window_label, run_id
 
         except Exception as e:
-            logger.error(f"Error subiendo/verificando manifiesto (intento {attempt}/{max_attempts}): {e}")
+            logger.error(
+                f"Error subiendo/verificando manifiesto (intento {attempt}/{max_attempts}): {e}"
+            )
             if attempt == max_attempts:
                 raise
-            time.sleep(base_delay * (2 ** attempt))
+            time.sleep(base_delay * (2**attempt))
 
     raise RuntimeError(f"No se pudo verificar el manifiesto después de {max_attempts} intentos")
 
@@ -397,10 +409,15 @@ def submit_batch_job(
         except Exception as e:
             msg = str(e)
             # Retentar en errores de ETag/propagación típicos
-            if any(k in msg.lower() for k in ["etag", "invalidrequest", "invalidargument", "nosuchkey", "malformedxml"]):
-                logger.warning(f"Reintentando creación de job por error recuperable (intento {attempt}/{max_attempts}): {e}")
+            if any(
+                k in msg.lower()
+                for k in ["etag", "invalidrequest", "invalidargument", "nosuchkey", "malformedxml"]
+            ):
+                logger.warning(
+                    f"Reintentando creación de job por error recuperable (intento {attempt}/{max_attempts}): {e}"
+                )
                 if attempt < max_attempts:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
             logger.error(f"Error creando Batch Job: {e}")
             raise
@@ -423,6 +440,7 @@ def compute_window_start(event_time: datetime, freq_hours: int) -> datetime:
 # MANIFEST GENERATION - CORREGIDO
 # ============================================================================
 
+
 def upload_manifest(
     criticality: str,
     source_bucket: str,
@@ -432,13 +450,13 @@ def upload_manifest(
     """
     Sube el CSV con los objetos del ciclo incremental.
     CORREGIDO: Obtiene ETag confiable y espera consistencia.
-    
+
     Returns:
         Tuple[key, etag, window_label, run_id]
     """
     window_label = window_start.strftime("%Y%m%dT%H%MZ")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    
+
     manifest_key = (
         f"manifests/criticality={criticality}/backup_type=incremental/"
         f"initiative={INICIATIVA}/bucket={source_bucket}/window={window_label}/"
@@ -475,32 +493,31 @@ def upload_manifest(
 
             # CRÍTICO: Obtener ETag del PutObject response
             etag = put_resp.get("ETag", "").strip('"')
-            
+
             # Verificar inmediatamente que el objeto existe con el mismo ETag
             time.sleep(0.5)  # Pequeño delay para consistencia eventual
             head_resp = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)
             head_etag = head_resp.get("ETag", "").strip('"')
-            
+
             if etag and etag == head_etag:
                 logger.info(f"✅ Manifiesto verificado con ETag: {etag}")
                 logger.info(f"   Objetos: {len(object_keys)}")
                 return manifest_key, etag, window_label, run_id
             else:
                 logger.warning(
-                    f"ETag mismatch en intento {attempt}: "
-                    f"put={etag} vs head={head_etag}"
+                    f"ETag mismatch en intento {attempt}: " f"put={etag} vs head={head_etag}"
                 )
                 if attempt < max_attempts:
                     time.sleep(1)
                     continue
-                    
+
         except Exception as e:
             logger.error(f"Error en intento {attempt}: {e}")
             if attempt < max_attempts:
                 time.sleep(1)
                 continue
             raise
-    
+
     # Si llegamos aquí, todos los intentos fallaron
     raise RuntimeError(
         f"No se pudo subir manifest con ETag consistente después de {max_attempts} intentos"
@@ -510,6 +527,7 @@ def upload_manifest(
 # ============================================================================
 # S3 BATCH JOB SUBMISSION - SIMPLIFICADO
 # ============================================================================
+
 
 def submit_batch_job(
     criticality: str,
@@ -521,8 +539,8 @@ def submit_batch_job(
     run_id: str,
 ) -> str:
     """Crea un job de S3 Batch Operations para copiar los objetos."""
-    
-    window_label = window_start.strftime('%Y%m%dT%H%MZ')
+
+    window_label = window_start.strftime("%Y%m%dT%H%MZ")
     data_prefix = (
         f"backup/criticality={criticality}/backup_type=incremental/"
         f"generation={GENERATION_INCREMENTAL}/"
@@ -539,10 +557,8 @@ def submit_batch_job(
     )
 
     manifest_arn = f"arn:aws:s3:::{BACKUP_BUCKET}/{manifest_key}"
-    
-    description = (
-        f"Incremental backup for {source_bucket} ({criticality}) window {window_label}"
-    )
+
+    description = f"Incremental backup for {source_bucket} ({criticality}) window {window_label}"
 
     logger.info(f"  Creando S3 Batch Job:")
     logger.info(f"   Source: {source_bucket}")
@@ -587,11 +603,11 @@ def submit_batch_job(
         job_id = response["JobId"]
         logger.info(f"✅ S3 Batch Job creado: {job_id}")
         return job_id
-        
+
     except Exception as e:
         error_msg = str(e)
         logger.error(f"❌ Error creando Batch Job: {error_msg}")
-        
+
         # Si es error de ETag, intentar una vez más con HeadObject fresh
         if "ETag" in error_msg or "etag" in error_msg.lower():
             logger.warning("⚠️  Reintentando con ETag fresh de HeadObject...")
@@ -600,7 +616,7 @@ def submit_batch_job(
                 head_resp = s3_client.head_object(Bucket=BACKUP_BUCKET, Key=manifest_key)
                 fresh_etag = head_resp["ETag"].strip('"')
                 logger.info(f"   ETag fresh: {fresh_etag}")
-                
+
                 response = s3_control.create_job(
                     AccountId=ACCOUNT_ID,
                     ConfirmationRequired=False,
@@ -632,15 +648,15 @@ def submit_batch_job(
                     Priority=10,
                     ClientRequestToken=str(uuid.uuid4()),
                 )
-                
+
                 job_id = response["JobId"]
                 logger.info(f"✅ S3 Batch Job creado (retry): {job_id}")
                 return job_id
-                
+
             except Exception as retry_error:
                 logger.error(f"❌ Retry también falló: {retry_error}")
                 raise
-        
+
         raise
 
 
@@ -648,15 +664,16 @@ def submit_batch_job(
 # LAMBDA HANDLER
 # ============================================================================
 
+
 def lambda_handler(event, context):
     """
     Handler principal para backups incrementales event-driven.
     Procesa eventos S3 desde SQS, agrupa por ventanas y genera batch jobs.
     """
     records = event.get("Records", [])
-    logger.info("="*80)
+    logger.info("=" * 80)
     logger.info(f"Evento recibido con {len(records)} registros SQS")
-    logger.info("="*80)
+    logger.info("=" * 80)
 
     # Agrupar objetos por (criticidad, bucket, ventana)
     grouped_objects: Dict[Tuple[str, str, str], Set[str]] = {}
@@ -672,32 +689,36 @@ def lambda_handler(event, context):
             try:
                 s3_event = json.loads(body) if isinstance(body, str) else body
             except json.JSONDecodeError:
-                logger.warning(f"Body no es JSON (messageId={message_id}); marcando como fallo parcial")
+                logger.warning(
+                    f"Body no es JSON (messageId={message_id}); marcando como fallo parcial"
+                )
                 if message_id:
                     failed_message_ids.append(message_id)
                 continue
-            
+
             recs = s3_event.get("Records", []) if isinstance(s3_event, dict) else []
             for s3_record in recs:
                 if not isinstance(s3_record, dict):
                     continue
-                if "s3" not in s3_record or "bucket" not in s3_record["s3"] or "object" not in s3_record["s3"]:
+                if (
+                    "s3" not in s3_record
+                    or "bucket" not in s3_record["s3"]
+                    or "object" not in s3_record["s3"]
+                ):
                     logger.debug("Record sin datos S3 esperados; omitiendo")
                     continue
                 bucket_name = s3_record["s3"]["bucket"]["name"]
                 object_key = unquote_plus(s3_record["s3"]["object"]["key"])
-                event_time = datetime.fromisoformat(
-                    s3_record["eventTime"].replace("Z", "+00:00")
-                )
+                event_time = datetime.fromisoformat(s3_record["eventTime"].replace("Z", "+00:00"))
 
                 logger.debug(f"Procesando: s3://{bucket_name}/{object_key}")
 
                 # Obtener criticidad del bucket
                 criticality = get_bucket_criticality(bucket_name)
-                
+
                 # Obtener frecuencia configurada
                 freq_hours = get_frequency_hours(criticality)
-                
+
                 # Validar si requiere incrementales
                 if not freq_hours:
                     logger.debug(
@@ -708,9 +729,7 @@ def lambda_handler(event, context):
 
                 # Validar prefijos permitidos y exclusiones
                 if not within_allowed_prefixes(criticality, object_key):
-                    logger.debug(
-                        f"Objeto excluido por filtros: {object_key}"
-                    )
+                    logger.debug(f"Objeto excluido por filtros: {object_key}")
                     continue
 
                 # Calcular ventana temporal
@@ -723,7 +742,7 @@ def lambda_handler(event, context):
                 window_metadata[group_key] = window_start.astimezone(timezone.utc)
                 if message_id:
                     group_message_ids.setdefault(group_key, set()).add(message_id)
-                
+
                 logger.debug(
                     f"✅ Objeto incluido: {criticality} / {bucket_name} / "
                     f"ventana {freq_hours}h ({window_label})"
@@ -765,7 +784,7 @@ def lambda_handler(event, context):
             manifest_key, manifest_etag, manifest_window_label, run_id = upload_manifest(
                 criticality, source_bucket, window_start, object_keys
             )
-            
+
             # Crear batch job
             job_id = submit_batch_job(
                 criticality=criticality,
@@ -776,14 +795,16 @@ def lambda_handler(event, context):
                 window_label=manifest_window_label,
                 run_id=run_id,
             )
-            
-            jobs_created.append({
-                "job_id": job_id,
-                "bucket": source_bucket,
-                "criticality": criticality,
-                "window": window_label,
-                "objects": len(object_keys)
-            })
+
+            jobs_created.append(
+                {
+                    "job_id": job_id,
+                    "bucket": source_bucket,
+                    "criticality": criticality,
+                    "window": window_label,
+                    "objects": len(object_keys),
+                }
+            )
 
             # Mark window as processed (checkpoint)
             if not DISABLE_WINDOW_CHECKPOINT:
@@ -791,26 +812,26 @@ def lambda_handler(event, context):
                     write_window_checkpoint(BACKUP_BUCKET, source_bucket, criticality, window_label)
                 except Exception as e:
                     logger.warning(f"No se pudo escribir checkpoint de ventana {window_label}: {e}")
-        
+
         except Exception as exc:
             # Map failure to contributing SQS messages
             mids = list(group_message_ids.get(group_key, set()))
             failed_message_ids.extend(mids)
             logger.error(
                 f"❌ Error creando job para {source_bucket} ventana {window_label}: {exc}",
-                exc_info=True
+                exc_info=True,
             )
 
     # Partial batch response
     failures = list({mid for mid in failed_message_ids if mid})
     if failures:
         logger.warning(f"⚠️  Mensajes con error (parcial): {len(failures)}")
-    
-    logger.info("="*80)
-    logger.info(f"✅ Proceso completado: {len(jobs_created)} jobs creados; fallidos={len(failures)}")
-    logger.info("="*80)
+
+    logger.info("=" * 80)
+    logger.info(
+        f"✅ Proceso completado: {len(jobs_created)} jobs creados; fallidos={len(failures)}"
+    )
+    logger.info("=" * 80)
 
     # SQS partial-batch contract
-    return {
-        "batchItemFailures": [{"itemIdentifier": mid} for mid in failures]
-    }
+    return {"batchItemFailures": [{"itemIdentifier": mid} for mid in failures]}

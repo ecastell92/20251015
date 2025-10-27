@@ -61,8 +61,11 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
   # Nombres comunes para recursos locales (usados por planes de AWS Backup)
-  prefijo_recursos = "${var.tenant}-${lower(var.environment)}"
-  sufijo_recursos  = "${lower(var.iniciativa)}-${var.sufijo_recursos}"
+  prefijo_recursos           = "${var.tenant}-${lower(var.environment)}"
+  sufijo_recursos            = "${lower(var.iniciativa)}-${var.sufijo_recursos}"
+  central_backup_bucket_name = "${local.prefijo_recursos}-central-bck-${local.sufijo_recursos}-notinet"
+  central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
+  central_backup_vault_name  = "${local.prefijo_recursos}-aws-vault-bck-${local.sufijo_recursos}"
 }
 
 // ============================================================================
@@ -80,10 +83,10 @@ module "central_resources" {
   iniciativa  = var.iniciativa
 
   # Bucket central
-  #central_backup_bucket_name = var.central_backup_bucket_name
-  central_backup_vault_name = var.central_backup_vault_name
-  sufijo_recursos           = var.sufijo_recursos
-  enable_central_bucket     = var.enable_central_bucket
+  central_backup_bucket_name = local.central_backup_bucket_name
+  central_backup_vault_name  = local.central_backup_vault_name
+  sufijo_recursos            = var.sufijo_recursos
+  enable_central_bucket      = var.enable_central_bucket
 
   # Reglas GFS optimizadas
   gfs_rules = var.gfs_rules
@@ -298,7 +301,7 @@ resource "aws_backup_plan" "gfs" {
     for_each = each.value.son_retention_days > 0 ? [1] : []
     content {
       rule_name         = "daily-son-${each.key}"
-      target_vault_name = var.central_backup_vault_name
+      target_vault_name = local.central_backup_vault_name
       schedule          = "cron(0 2 * * ? *)" // diario 02:00 UTC
       lifecycle {
         delete_after = each.value.son_retention_days
@@ -311,7 +314,7 @@ resource "aws_backup_plan" "gfs" {
     for_each = each.value.father_retention_days > 0 ? [1] : []
     content {
       rule_name         = "weekly-father-${each.key}"
-      target_vault_name = var.central_backup_vault_name
+      target_vault_name = local.central_backup_vault_name
       schedule          = "cron(0 3 ? * SUN *)" // semanal domingo 03:00 UTC
       lifecycle {
         delete_after = each.value.father_retention_days
@@ -323,7 +326,7 @@ resource "aws_backup_plan" "gfs" {
     for_each = each.value.grandfather_retention_days > 0 ? [1] : []
     content {
       rule_name         = "monthly-grandfather-${each.key}"
-      target_vault_name = var.central_backup_vault_name
+      target_vault_name = local.central_backup_vault_name
       schedule          = "cron(0 4 1 * ? *)" // mensual día 1 04:00 UTC
       lifecycle {
         delete_after = each.value.grandfather_retention_days
@@ -404,3 +407,9 @@ output "cost_optimization_summary" {
     estimated_savings          = "65-68%"
   }
 }
+
+// ============================================================================
+// MÓDULO 3: RESTORE LITE (independiente)
+// ============================================================================
+// Restaura DATA desde el bucket central hacia buckets origen usando S3 Batch + Lambda
+

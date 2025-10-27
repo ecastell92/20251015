@@ -22,10 +22,10 @@ data "aws_caller_identity" "current" {}
 # ============================================================================
 
 locals {
-  resource_prefix            = "${var.tenant}-${lower(var.environment)}"
-  resource_suffix            = "${var.iniciativa}-${var.sufijo_recursos}"
-  central_backup_bucket_name = "${local.resource_prefix}-central-bcks-${local.resource_suffix}-notinet"
-  central_backup_bucket_arn  = "arn:aws:s3:::${local.central_backup_bucket_name}"
+  resource_prefix           = "${var.tenant}-${lower(var.environment)}"
+  resource_suffix           = "${var.iniciativa}-${var.sufijo_recursos}"
+  central_backup_bucket_arn = "arn:aws:s3:::${var.central_backup_bucket_name}"
+
 
   common_tags = {
     Name        = "central-backup"
@@ -42,7 +42,7 @@ locals {
 
 resource "aws_s3_bucket" "central_backup" {
   count               = var.enable_central_bucket ? 1 : 0
-  bucket              = local.central_backup_bucket_name
+  bucket              = var.central_backup_bucket_name
   force_destroy       = true
   object_lock_enabled = var.enable_object_lock
 

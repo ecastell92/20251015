@@ -18,8 +18,9 @@ enable_backup_dynamodb = false
 enable_cloudwatch_dashboard = true
 
 ## 3) Identificadores
-central_backup_vault_name = "00-dev-s3-aws-vault-bck-001-aws"
-sufijo_recursos           = "bck-001-aws"
+central_backup_bucket_name = ""
+central_backup_vault_name  = ""
+sufijo_recursos            = "bck-001-aws"
 
 ## 4) Schedules por criticidad - ESTRATEGIA DUAL
 schedule_expressions = {

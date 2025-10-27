@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Uso: bash scripts/restore_data_super_simple.sh
+
+read_def() {
+  local prompt="$1"; local def="${2-}"; local var
+  if [ -z "${def}" ]; then
+    read -rp "$prompt: " var || true
+  else
+    read -rp "$prompt [$def]: " var || true
+    if [ -z "${var}" ]; then var="$def"; fi
+  fi
+  printf "%s" "$var"
+}
+
+choose() {
+  local prompt="$1"; local def="$2"; shift 2; local options=("$@"); local count=${#options[@]}
+  echo ""
+  echo "$prompt:"
+  local i=1
+  for opt in "${options[@]}"; do echo "  $i) $opt"; i=$((i+1)); done
+  printf "Selecciona [1-%s] (default=%s): " "$count" "$def"
+  local idx
+  if [ -e /dev/tty ]; then
+    read -r idx < /dev/tty || true
+  else
+    read -r idx || true
+  fi
+  if [ -z "$idx" ]; then echo "$def"; return; fi
+  if [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -ge 1 ] && [ "$idx" -le "$count" ]; then
+    echo "${options[$((idx-1))]}"; return
+  fi
+  echo "$def"
+}
+
+echo "=== Restauración de DATA (simple) ==="
+
+# 0) Opcional: Perfil y region AWS
+PROFILE=$(read_def "AWS Profile (vacio=default)" "${AWS_PROFILE:-}")
+REGION=$(read_def "AWS Region (vacio=config)" "${AWS_DEFAULT_REGION:-}")
+AWS_BASE=()
+[ -n "$PROFILE" ] && AWS_BASE+=(--profile "$PROFILE")
+[ -n "$REGION" ]  && AWS_BASE+=(--region  "$REGION")
+
+# 1) Bucket central desde Terraform (opcional)
+CENTRAL=""
+if command -v terraform >/dev/null 2>&1; then
+  set +e
+  CENTRAL=$(terraform output -raw central_bucket_name 2>/dev/null || true)
+  set -e
+fi
+CENTRAL=$(read_def "Nombre del bucket CENTRAL" "${CENTRAL}")
+# Sanitizar posibles CR/espacios
+CENTRAL=$(printf "%s" "$CENTRAL" | tr -d '\r' | xargs)
+if [ -z "$CENTRAL" ]; then echo "Debe indicar el bucket central" >&2; exit 1; fi
+# Validar acceso al bucket central
+if ! aws "${AWS_BASE[@]}" s3api head-bucket --bucket "$CENTRAL" >/dev/null 2>&1; then
+  echo "No se puede acceder al bucket central: $CENTRAL" >&2
+  echo "Verifica perfil/región o permisos (aws sso login)." >&2
+  exit 1
+fi
+
+# 2) Bucket origen/destino
+SRC=$(read_def "Bucket ORIGEN (destino)" "")
+# Sanitizar posibles CR/espacios
+SRC=$(printf "%s" "$SRC" | tr -d '\r' | xargs)
+if [ -z "$SRC" ]; then echo "Debe indicar el bucket origen/destino" >&2; exit 1; fi
+# Validar acceso al bucket destino (para permisos/typos tempranos)
+if ! aws "${AWS_BASE[@]}" s3api head-bucket --bucket "$SRC" >/dev/null 2>&1; then
+  echo "El bucket destino no existe o no tienes permiso: $SRC" >&2
+  echo "Salida de diagnóstico (aws s3 ls s3://$SRC):" >&2
+  aws "${AWS_BASE[@]}" s3 ls "s3://$SRC" || true
+  exit 1
+fi
+
+# 3) Parámetros de ventana
+CRIT=$(choose "Criticality" Critico Critico MenosCritico NoCritico)
+TYPE=$(choose "Backup type" incremental incremental full)
+if [ "$TYPE" = "full" ]; then
+  GEN=$(choose "Generation" father father grandfather)
+else
+  GEN=son
+  echo "Generation fijo: son (para incremental)"
+fi
+INI=$(read_def "Initiative" "mvp")
+
+# 4) Timestamp opcional
+TS_IN=$(read_def "Timestamp (YYYYMMDDTHHMMZ) vacío=último" "")
+BASE="backup/criticality=$CRIT/backup_type=$TYPE/generation=$GEN/initiative=$INI/bucket=$SRC/"
+
+if [ -z "$TS_IN" ]; then
+  echo "Buscando último timestamp en s3://$CENTRAL/$BASE ..."
+TS_PREFIX=$(aws "${AWS_BASE[@]}" s3api list-objects-v2 --bucket "$CENTRAL" --prefix "$BASE" --delimiter "/" --query "reverse(sort_by(CommonPrefixes,&Prefix))[0].Prefix" --output text 2>/dev/null || true)
+  if [ -z "$TS_PREFIX" ] || [ "$TS_PREFIX" = "None" ] || [ "$TS_PREFIX" = "null" ]; then
+    echo "No se encontró 'timestamp=' automáticamente. Ingrese uno manualmente." >&2
+    TS_IN=$(read_def "Timestamp requerido (YYYYMMDDTHHMMZ)" "")
+    if [ -z "$TS_IN" ]; then echo "Sin timestamp válido, abortando" >&2; exit 1; fi
+    TS_PREFIX="${BASE}timestamp=${TS_IN}/"
+  fi
+else
+  case "$TS_IN" in
+    timestamp=*) TS_PREFIX="${BASE}${TS_IN}/" ;;
+    *) TS_PREFIX="${BASE}timestamp=${TS_IN}/" ;;
+  esac
+fi
+
+echo "Copiando desde: s3://$CENTRAL/$TS_PREFIX"
+echo "Hacia:          s3://$SRC/"
+read -rp "Confirmar (y/n) [y]: " OK; OK=${OK:-y}
+if [ "${OK,,}" != "y" ]; then echo "Cancelado."; exit 0; fi
+
+# Opcional: Encriptación destino
+read -rp "¿Encriptar en destino? (none/AES256/KMS) [none]: " ENC; ENC=${ENC:-none}
+EXTRA=()
+case "$ENC" in
+  AES256|aes256)
+    EXTRA+=(--sse AES256)
+    ;;
+  KMS|kms)
+    read -rp "KMS Key ID/ARN/alias: " KMSKEY
+    if [ -z "$KMSKEY" ]; then echo "Se requiere KMS Key para modo KMS" >&2; exit 1; fi
+    EXTRA+=(--sse aws:kms --sse-kms-key-id "$KMSKEY")
+    ;;
+  *) ;;
+esac
+
+aws "${AWS_BASE[@]}" s3 cp "s3://$CENTRAL/$TS_PREFIX" "s3://$SRC/" --recursive "${EXTRA[@]}"
+echo "Restauración completada."
+

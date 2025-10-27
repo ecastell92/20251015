@@ -11,9 +11,11 @@ Este documento resume, en un lugar, todo lo necesario para desplegar, operar, re
 ## 2. Nomenclatura de rutas en el bucket central
 
 - Datos incrementales:
-  `backup/criticality=<Critico|MenosCritico|NoCritico>/backup_type=incremental/generation=son/initiative=<ini>/bucket=<origen>/year=YYYY/month=MM/day=DD/hour=HH/window=<YYYYMMDDTHHMMZ>/...`
-- Manifiestos incrementales: `manifests/criticality=.../backup_type=incremental/.../window=.../manifest-<ts>.csv`
-- Reportes S3 Batch: `reports/criticality=.../backup_type=incremental/.../window=.../run=<ts>/...`
+  `backup/criticality=<Critico|MenosCritico|NoCritico>/backup_type=incremental/generation=son/initiative=<ini>/bucket=<origen>/year=YYYY/month=MM/day=DD/hour=HH/timestamp=<YYYYMMDDTHHMMZ>/...`
+- Manifiestos incrementales:
+  `manifests/criticality=<...>/backup_type=incremental/initiative=<ini>/bucket=<origen>/year=YYYY/month=MM/day=DD/hour=HH/manifest-<ts>.csv`
+- Reportes S3 Batch:
+  `reports/criticality=<...>/backup_type=<incremental|full>/generation=<...>/initiative=<ini>/bucket=<origen>/year=YYYY/month=MM/day=DD/hour=HH/`
 - Checkpoints: `checkpoints/<bucket-origen>/<backup_type>.txt`
 - Configuraciones: `backup/configurations/initiative=<ini>/service=<svc>/year=YYYY/month=MM/day=DD/hour=HH/...json`
 
@@ -90,6 +92,7 @@ Tras el deploy, `find_resources` corre una vez (one‑shot) y configura S3 Inven
 - Jobs S3 Batch: `aws s3control list-jobs --account-id <acct>`
 - Reporte último job: `python scripts/s3_batch_report_summary.py --bucket <central-bucket> --region <region>`
 
+
 ## 6. Validaciones adicionales
 
 ### 6.1 Operación y monitoreo
@@ -115,11 +118,10 @@ python scripts/cleanup_s3_backup_configs.py --profile <perfil> --region <region>
 - “Etag mismatch reading manifest”: corregido usando ETag del PutObject; re‑aplica cambios.
 - “AccessDenied” en reportes: SSE‑KMS en origen; define `source_kms_key_arns` o usa `kms_allow_viaservice=true` y revisa key policies si son cross‑account.
 - Objetos faltantes: evita efímeros (.inprogress) y marcadores de carpeta (`/`); limita con `allowed_prefixes` a prefijos estables (p. ej. `output/`).
-
 ## 9. Scripts útiles
 
-- `scripts/s3_batch_report_summary.py` – resume el último CSV de reportes de S3 Batch.
-- `scripts/cleanup_s3_backup_configs.py` – limpia Inventory y notificaciones S3→SQS.
+-  `scripts/s3_batch_report_summary.py` - resume el último CSV de reportes de S3 Batch. 
+-  `scripts/cleanup_s3_backup_configs.py` - limpia Inventory y notificaciones S3-SQS. 
 
 ## 10. Administración multi-cuenta desde la app
 
@@ -136,5 +138,5 @@ python -m app.cli list-accounts --config accounts.yaml
 python -m app.cli trigger-backup account-analytics --criticality Critico --config accounts.yaml
 ```
 
-La app asume el rol definido en cada cuenta, invoca la Step Function de backups/restauraciones correspondiente y registra el ARN
+La app asume el rol definido en cada cuenta, invoca la Step Function de backups correspondiente y registra el ARN
 de ejecución devuelto por Step Functions.
