@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Backups de {{ account.name }}{% endblock %}
+{% block content %}
+<section class="card">
+  <a href="{{ url_for('index') }}" class="back-link">← Volver</a>
+  <h2>Backups en {{ account.backup_bucket }}</h2>
+  <p>Prefijo: {{ account.backup_prefix or '/' }}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Objeto</th>
+        <th>Última modificación</th>
+        <th>Tamaño</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for backup in backups %}
+      <tr>
+        <td>{{ backup.key }}</td>
+        <td>{{ backup.last_modified.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>{{ backup.human_readable_size }}</td>
+        <td>
+          <form method="post" action="{{ url_for('restore_backup', account_id=account.id) }}">
+            <input type="hidden" name="object_key" value="{{ backup.key }}" />
+            <div class="form-row">
+              <label>
+                Estrategia
+                <select name="strategy">
+                  <option value="copy" {% if account.restore_bucket %}selected{% endif %}>Copiar a bucket destino</option>
+                  <option value="download" {% if not account.restore_bucket %}selected{% endif %}>Descargar (URL presignada)</option>
+                </select>
+              </label>
+              <label>
+                Bucket destino
+                <input type="text" name="destination_bucket" value="{{ account.restore_bucket or '' }}" />
+              </label>
+              <label>
+                Prefijo destino
+                <input type="text" name="destination_prefix" value="{{ account.restore_prefix }}" />
+              </label>
+              <button type="submit">Restaurar</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4">No se encontraron objetos. Verifica el bucket/prefijo.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
