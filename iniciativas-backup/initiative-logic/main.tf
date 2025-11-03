@@ -815,9 +815,9 @@ resource "aws_lambda_event_source_mapping" "sqs_event" {
   event_source_arn = aws_sqs_queue.s3_events_queue.arn
   function_name    = aws_lambda_function.incremental_backup.function_name
 
-  # Optimized batching
-  batch_size                         = 256
-  maximum_batching_window_in_seconds = 60
+  # Batching optimizado: máximos permitidos por Lambda + SQS
+  batch_size                         = 1000   # Hasta 1000 mensajes por ejecución
+  maximum_batching_window_in_seconds = 300    # Espera hasta 5 minutos para agrupar eventos
 
   # Report per-item failures back to SQS for retries
   function_response_types = ["ReportBatchItemFailures"]
@@ -1540,22 +1540,3 @@ output "backup_frequency_configuration" {
   value       = local.backup_frequencies
 }
 
-# output "event_driven_criticalities" {
-#   description = "Criticidades que van por event-driven (0 < h <= 24)"
-#   value       = local.notif_criticalities
-# }
-
-# output "manifest_diff_criticalities" {
-#   description = "Criticidades que van por manifest-diff (h > 24)"
-#   value       = local.manifest_diff_criticalities
-# }
-
-# output "no_incremental_criticalities" {
-#   description = "Criticidades sin incremental (h == 0)"
-#   value       = local.no_incremental_criticalities
-# }
-
-# output "backup_frequency_configuration" {
-#   description = "Frecuencias configuradas para incrementales (en horas)"
-#   value       = local.backup_frequencies
-# }

@@ -29,15 +29,6 @@ terraform {
       version = "~> 3.2"
     }
   }
-
-  # Descomentar para usar remote state en S3
-  # backend "s3" {
-  #   bucket         = "tu-bucket-terraform-state"
-  #   key            = "backup-s3/terraform.tfstate"
-  #   region         = "eu-west-1"
-  #   encrypt        = true
-  #   dynamodb_table = "terraform-state-lock"
-  # }
 }
 
 provider "aws" {
@@ -45,11 +36,11 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "S3BackupOptimized"
+      Project     = "Backup"
       ManagedBy   = "Terraform"
       Environment = var.environment
       Tenant      = var.tenant
-      CostCenter  = "optimized"
+      CostCenter  = "backup"
     }
   }
 }

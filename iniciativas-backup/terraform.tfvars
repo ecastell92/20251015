@@ -1,13 +1,13 @@
 ## ============================================================================
-## CONFIGURACIÓN OPTIMIZADA - GARANTÍA CERO PÉRDIDA DE DATOS
+## CONFIGURACIÓN
 ## ============================================================================
 
 ## 1) Básicos
 aws_region  = "eu-west-1"
 environment = "dev"
 tenant      = "00"
-iniciativa  = "mvp"
-cuenta      = "905418243844"
+iniciativa  = "DGT"
+cuenta      = "142644586465"
 
 ## 2) Selección de módulos
 enable_s3_backups      = true
@@ -42,6 +42,18 @@ schedule_expressions = {
 ## 5) GFS – Retención por criticidad
 gfs_rules = {
   Critico = {
+    # Descripción de campos GFS para esta criticidad:
+    # - enable: Activa o desactiva las reglas GFS para esta criticidad.
+    # - start_storage_class: Clase de almacenamiento inicial en el bucket central
+    #   (STANDARD | GLACIER_IR | GLACIER).
+    # - son_retention_days: Días de retención del tier "Son" (incrementales).
+    # - father_da_days: Días hasta mover el tier "Father" a DEEP_ARCHIVE (0 = no mover).
+    # - father_retention_days: Retención TOTAL del tier "Father" (sweeps completos).
+    # - father_archive_class: Clase de archivo objetivo para el tier "Father".
+    # - grandfather_da_days: Días hasta mover el tier "Grandfather" a DEEP_ARCHIVE
+    #   (recomendado >= 90 días para cumplir requisitos de S3).
+    # - grandfather_retention_days: Retención TOTAL del tier "Grandfather" (sweeps mensuales).
+    # - grandfather_archive_class: Clase de archivo objetivo para el tier "Grandfather".
     enable                     = true
     start_storage_class        = "GLACIER_IR"
     son_retention_days         = 21 # ← 21 días incrementales

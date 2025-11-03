@@ -340,13 +340,13 @@ variable "disable_window_checkpoint" {
 variable "exclude_key_prefixes" {
   description = "Prefijos a excluir en incrementales. VACÍO por defecto = copiar todo menos exclusiones técnicas."
   type        = list(string)
-  default     = [] # ✅ CORREGIDO: Vacío por defecto
+  default     = []
 }
 
 variable "exclude_key_suffixes" {
   description = "Sufijos a excluir. Por defecto SOLO marcadores de carpeta."
   type        = list(string)
-  default     = ["/"] # ✅ CORREGIDO: Solo marcadores de carpeta
+  default     = ["/"]
 }
 
 # Nivel de log para Lambda incremental
