@@ -2,6 +2,8 @@
 
 Este documento resume, en un lugar, todo lo necesario para desplegar, operar, restaurar y limpiar la solución. Es la referencia para cualquier persona que llegue al proyecto.
 
+> Nota: El servicio de restore orquestado (Step Functions + Lambdas) ahora vive en el directorio `restore-service/` con su propio `README.md` y pipeline Terraform independiente.
+
 ## 1. Requisitos
 
 - Terraform >= 1.4, Provider AWS ~> 5.x
@@ -101,7 +103,6 @@ Tras el deploy, `find_resources` corre una vez (one‑shot) y configura S3 Inven
 - SQS encolando eventos de S3.
 - Schedules de EventBridge según criticidad.
 
- 
 
 ## 7. Limpieza y destroy
 
@@ -114,16 +115,16 @@ python scripts/cleanup_s3_backup_configs.py --profile <perfil> --region <region>
 
 ## 8. Troubleshooting (rápido)
 
-- “Grupos encontrados: 0” en incremental: sin eventos S3 válidos; revisa S3→SQS, filtros y prefijos.
-- “Etag mismatch reading manifest”: corregido usando ETag del PutObject; re‑aplica cambios.
-- “AccessDenied” en reportes: SSE‑KMS en origen; define `source_kms_key_arns` o usa `kms_allow_viaservice=true` y revisa key policies si son cross‑account.
+- "Grupos encontrados: 0" en incremental: sin eventos S3 válidos; revisa S3→SQS, filtros y prefijos.
+- "Etag mismatch reading manifest": corregido usando ETag del PutObject; re-aplica cambios.
+- "AccessDenied" en reportes: SSE-KMS en origen; define `source_kms_key_arns` o usa `kms_allow_viaservice=true` y revisa key policies si son cross-account.
 - Objetos faltantes: evita efímeros (.inprogress) y marcadores de carpeta (`/`); limita con `allowed_prefixes` a prefijos estables (p. ej. `output/`).
-## 9. Scripts útiles
+## 8. Scripts útiles
 
 -  `scripts/s3_batch_report_summary.py` - resume el último CSV de reportes de S3 Batch. 
 -  `scripts/cleanup_s3_backup_configs.py` - limpia Inventory y notificaciones S3-SQS. 
 
-## 10. Administración multi-cuenta desde la app
+## 9. Administración multi-cuenta desde la app
 
 Cuando la iniciativa debe operar en varias cuentas (por ejemplo 10 cuentas productivas), usa la aplicación ubicada en `app/` para
 unificar la orquestación desde una sola consola.

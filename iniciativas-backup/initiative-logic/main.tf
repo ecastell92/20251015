@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // Initiative Logic Project - CORREGIDO
 // ============================================================================
 // CAMBIOS:
@@ -756,7 +756,7 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
         }
       },
 
-      // S3 Storage (Bucket central)
+            // S3 Storage (Bucket central)
       {
         type   = "metric"
         width  = 12
@@ -787,13 +787,31 @@ resource "aws_cloudwatch_dashboard" "backup_ops" {
           ]
         }
       },
-
-      // Coste (Billing) - métrica disponible solo en us-east-1
+      // S3 Batch Operations (jobs)
       {
         type   = "metric"
-        width  = 24
+        width  = 12
         height = 6
         x      = 0
+        y      = 20
+        properties = {
+          title  = "S3 Batch (Jobs)"
+          view   = "timeSeries"
+          region = var.aws_region
+          metrics = [
+            ["AWS/S3BatchOperations", "JobsStarted",   "AccountId", data.aws_caller_identity.current.account_id, { "stat" : "Sum" }],
+            [".",                     "JobsCompleted", ".",                                           ".",      { "stat" : "Sum" }],
+            [".",                     "JobsFailed",     ".",                                           ".",      { "stat" : "Sum" }]
+          ]
+          period = 300
+        }
+      },
+      // Coste estimado (AWS/Billing solo disponible en us-east-1)
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        x      = 12
         y      = 20
         properties = {
           title  = "Estimated Charges (USD)"

@@ -100,6 +100,7 @@ allowed_prefixes = {
 
 # Exclusiones SOLO técnicas (aplican a incrementales Y sweeps)
 exclude_key_prefixes = [
+  "mqtt/" # ← Descomentar si tienes MQTT
   # "temporary/",        # ← Descomentar si tienes carpeta temporal
   # "sparkHistoryLogs/", # ← Descomentar si tienes logs Spark
   # ".trash/",           # ← Descomentar si tienes papelera

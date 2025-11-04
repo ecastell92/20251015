@@ -1,0 +1,94 @@
+{
+  "Comment": "Restore pipeline orquestado con Step Functions",
+  "StartAt": "DeterminarModo",
+  "States": {
+    "DeterminarModo": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "prefix",
+          "Next": "GenerarManifest"
+        }
+      ],
+      "Default": "EstablecerManifest"
+    },
+    "GenerarManifest": {
+      "Type": "Task",
+      "Resource": "${generate_manifest_arn}",
+      "ResultPath": "$.manifest",
+      "Next": "IniciarRestoreJob"
+    },
+    "EstablecerManifest": {
+      "Type": "Pass",
+      "ResultPath": "$.manifest",
+      "Parameters": {
+        "bucket.$": "$.manifestBucket",
+        "key.$": "$.manifestKey"
+      },
+      "Next": "ValidarManifest"
+    },
+    "ValidarManifest": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.manifest.bucket",
+          "IsPresent": true,
+          "Next": "IniciarRestoreJob"
+        }
+      ],
+      "Default": "ManifestInvalido"
+    },
+    "ManifestInvalido": {
+      "Type": "Fail",
+      "Error": "MissingManifest",
+      "Cause": "Se requiere manifestBucket y manifestKey cuando mode=manifest"
+    },
+    "IniciarRestoreJob": {
+      "Type": "Task",
+      "Resource": "${start_job_arn}",
+      "ResultPath": "$.job",
+      "Next": "MonitorearRestore"
+    },
+    "MonitorearRestore": {
+      "Type": "Task",
+      "Resource": "${monitor_job_arn}",
+      "ResultPath": "$.job",
+      "Next": "EvaluarEstado"
+    },
+    "EvaluarEstado": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.job.status",
+          "StringEquals": "Complete",
+          "Next": "RestoreCompletado"
+        },
+        {
+          "Variable": "$.job.status",
+          "StringEquals": "Failed",
+          "Next": "RestoreFallido"
+        },
+        {
+          "Variable": "$.job.status",
+          "StringEquals": "Cancelled",
+          "Next": "RestoreFallido"
+        }
+      ],
+      "Default": "Esperar"
+    },
+    "Esperar": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "MonitorearRestore"
+    },
+    "RestoreFallido": {
+      "Type": "Fail",
+      "Error": "RestoreFailed",
+      "Cause": "El job de S3 Batch finalizó con error."
+    },
+    "RestoreCompletado": {
+      "Type": "Succeed"
+    }
+  }
+}

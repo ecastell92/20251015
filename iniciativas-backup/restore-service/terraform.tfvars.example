@@ -1,0 +1,22 @@
+aws_region           = "eu-west-1"
+tenant               = "00"
+environment          = "dev"
+iniciativa           = "mvp"
+sufijo_recursos      = "restore-001"
+
+# Bucket donde se guardarán los manifests (puede ser el bucket central de backups)
+manifest_bucket_name = "mi-bucket-de-backup"
+manifest_prefix      = "restore-manifests/"
+report_suffix        = "batch-reports/"
+
+# Opcional: sobrescribir nombre del rol de S3 Batch o recursos de Lambda
+batch_operations_role_name = "service-role/AWSBatchOperationsRole"
+lambda_timeout             = 900
+lambda_memory              = 512
+
+# Tags globales
+tags = {
+  ManagedBy   = "Terraform"
+  Project     = "RestoreService"
+  Environment = "dev"
+}
