@@ -13,7 +13,7 @@ cuenta      = "142644586465"
 enable_s3_backups      = true
 enable_central_bucket  = true
 enable_backup_rds      = true
-enable_backup_dynamodb = false
+enable_backup_dynamodb = true
 
 enable_cloudwatch_dashboard = true
 
